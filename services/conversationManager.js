@@ -69,74 +69,39 @@ const ConversationManager = {
             currentState.data.date = formattedDate;
             await WhatsappService.sendMessage(from, `Caut intervale libere pentru data de ${formattedDate}...`);
 
-            // Fetch doctors if not already known?
-            const doctors = await IstomaService.getDoctors();
-            // TODO: Filter for specific 4 dentists if required, but for now we use all returned.
-            // Also need cabinets? The API for slots asks for 'pIdSediu' and 'pListaIdMedici'.
-            // User request: "verifice programarile tuturor celor 4 dentisti si 2 cabinete"
-            // We'll pass all doctors we find.
+            // Fetch doctors and locations
+            const [doctors, locations] = await Promise.all([
+                IstomaService.getDoctors(),
+                IstomaService.getLocations()
+            ]);
+
             const doctorIds = doctors.map(d => d.id);
+            const locationIds = locations.map(l => l.ID);
 
-            // Get slots
-            const slots = await IstomaService.getAvailableSlots(formattedDate, doctorIds);
-
-            // Normalize slots
-            // The API response structure for 'GetListaIntervaleActivitate' is list of objects
-            // { id_medic, id_locatie, id_cabinet, data_inceput, data_final }
-            // Expected format depends on actual API response, simulating it here based on docs.
-
-            // We need to parse valid slots into a set of unique times.
-            // Documentation for GetListaIntervaleActivitate says: returns intervals.
-            // Assuming we get [{ "data_inceput": "2026-01-28T09:00:00", ... }, ...]
-
-            // NOTE: The documentation says GetListaIntervaleActivitate returns list of intervals available.
-            // But we need to make sure we don't overwhelm user.
-            // Let's extract unique start times.
+            // Get slots for specific date
+            let slots = await IstomaService.getAvailableSlots(formattedDate, doctorIds, locationIds);
+            let usingFallback = false;
 
             if (!slots || slots.length === 0) {
-                await WhatsappService.sendMessage(from, `Din păcate nu sunt locuri libere pe ${formattedDate}. Te rog alege altă zi.`);
-                return; // Stay in WAITING_FOR_DATE
-            }
+                // Fallback: Check for next available slots
+                // "Din păcate nu sunt locuri libere pe (data). Dar uite ce am găsit în curând:"
+                const nextSlots = await IstomaService.getFirstFreeSlots(5, doctorIds, locationIds);
 
-            // Extract times
-            const uniqueTimes = new Set();
-            slots.forEach(slot => {
-                // slot.data_inceput might be "DD.MM.YYYY HH:MM" or ISO
-                // Docs say "data inceput interval". Usually "DD.MM.YYYY HH:MM"
-                // Let's assume standardized format or try to parse
-                let timeStr = "";
-                if (slot.dataInceputInterval) { // PascalCase/Camel check? The docs use natural language often.
-                    // Assuming JSON response property matches docs or common sense.
-                    // Let's rely on simple string manipulation if possible.
-                    const parts = slot.dataInceputInterval.split(' ');
-                    if (parts.length > 1) timeStr = parts[1];
-                } else if (slot.StartDate) { // Generic API fallback
-                    const d = new Date(slot.StartDate);
-                    timeStr = format(d, 'HH:mm');
+                if (nextSlots && nextSlots.length > 0) {
+                    slots = nextSlots;
+                    usingFallback = true;
+                    await WhatsappService.sendMessage(from, `Din păcate nu sunt locuri libere pe ${formattedDate}. Dar am găsit aceste intervale libere în curând:`);
+                } else {
+                    await WhatsappService.sendMessage(from, `Din păcate nu sunt locuri libere pe ${formattedDate} și nici în zilele următoare. Te rog alege altă zi.`);
+                    return;
                 }
-
-                // If the API returns exact match as per docs "data inceput interval".
-                // I'll assume the JSON keys are like 'dataInceput' or similar. 
-                // Since I can't debug the API response directly without running it, 
-                // I will add a safe fallback logic or log it.
-                // For this implementation, I will treat 'slots' assuming it might need mapping.
-                // Wait, I can't guess the keys. 
-                // Based on "Fiecare medic conține id, nume...": keys are usually lowercase or camelCase in modern APIs 
-                // but docs use "id", "nume".
-
-                // User provided code example: $decoded->response->status.
-                // So response wrapper exists.
-            });
-
-            // MOCKING THE SLOTS FOR NOW AS I DON'T HAVE REAL API ACCESS YET to know keys
-            // But actually I should try to simplify: just present a list.
+            } else {
+                await WhatsappService.sendMessage(from, `Am găsit intervale libere pe ${formattedDate}:`);
+            }
 
             const availableOptions = this.processSlotsToOptions(slots);
 
             if (availableOptions.length === 0) {
-                // Fallback if processing failed or empty
-                // IF real API calls fail, maybe because I don't have the real IDs.
-                // I will assume for now I get some valid times.
                 await WhatsappService.sendMessage(from, `Nu am găsit intervale valide (eroare procesare).`);
                 return;
             }
@@ -147,8 +112,8 @@ const ConversationManager = {
             const sections = [{
                 title: 'Ore Disponibile',
                 rows: availableOptions.slice(0, 10).map(opt => ({
-                    id: `${opt.time}|${opt.doctorId}|${opt.cabinetId}`, // Encode data in ID
-                    title: opt.time,
+                    id: `${opt.fullDate || currentState.data.date}|${opt.time}|${opt.doctorId}|${opt.cabinetId}`, // Encode DATE so fallback works
+                    title: opt.displayTitle || opt.time,
                     description: opt.uName // Doctor name or similar
                 }))
             }];
@@ -157,15 +122,16 @@ const ConversationManager = {
             userState.set(from, currentState);
 
         } else if (currentState.state === STATES.WAITING_FOR_SLOT) {
-            // text is the ID from list selection: "HH:MM|docId|cabId"
+            // text is the ID from list selection: "DATE|HH:MM|docId|cabId"
             const parts = text.split('|');
-            if (parts.length < 3) {
+            if (parts.length < 4) {
                 await WhatsappService.sendMessage(from, "Se pare că a fost o eroare. Te rog alege din listă.");
                 return;
             }
 
-            const [time, doctorId, cabinetId] = parts;
-            const date = currentState.data.date;
+            const [dateBooking, time, doctorId, cabinetId] = parts;
+            // dateBooking is "DD.MM.YYYY"
+            const date = dateBooking;
 
             // Start booking
             // Need patient details. 
@@ -291,17 +257,35 @@ const ConversationManager = {
             const cabId = slot.idCabinet || slot.IdCabinet || 0;
             const locId = slot.idLocatie || slot.IdLocatie || 0;
 
-            // Dedupe by time? 
             // If multiple doctors free at 14:00, show 14:00 once? Or "14:00 (Dr X)", "14:00 (Dr Y)"?
             // User: "sa primeasca mesaj cu ora cu orele valabile care nu sunt acoperite"
             // Simple approach: show unique times. 
             // BUT we need to pass DocID to `addAppointment`.
-            // So we pick FIRST available doctor for that time.
 
-            if (!seen.has(time)) {
-                seen.add(time);
+            // Extract Date part
+            let datePart = '';
+            if (startStr.includes(' ')) {
+                datePart = startStr.split(' ')[0]; // DD.MM.YYYY
+            } else if (startStr.includes('T')) {
+                // Assuming YYYY-MM-DDTHH:MM:SS format, convert to DD.MM.YYYY
+                const [year, month, day] = startStr.split('T')[0].split('-');
+                datePart = `${day}.${month}.${year}`;
+            }
+
+            // Create a unique key for dedupe: Date + Time
+            const key = datePart + ' ' + time;
+
+            if (!seen.has(key)) {
+                seen.add(key);
+                // If the option date is different than 'today' or requested, show it?
+                // Just always show date for clarity in fallback scenarios.
+                // Format: "28.01 14:00"
+                const shortDate = datePart.substring(0, 5); // DD.MM
+
                 options.push({
                     time: time,
+                    fullDate: datePart, // We need this for booking if fallback used!
+                    displayTitle: `${shortDate} ${time}`,
                     doctorId: docId,
                     cabinetId: cabId,
                     uName: "Disponibil" // Could fetch doctor name if we cache doctors list
@@ -309,8 +293,8 @@ const ConversationManager = {
             }
         }
 
-        // Sort by time
-        options.sort((a, b) => a.time.localeCompare(b.time));
+        // Sort by time/date
+        options.sort((a, b) => a.displayTitle.localeCompare(b.displayTitle));
 
         return options;
     }
