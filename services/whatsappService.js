@@ -70,6 +70,25 @@ const WhatsappService = {
         } catch (error) {
             console.error('Error sending WhatsApp list:', error.response?.data || error.message);
         }
+    },
+
+    async sendTemplate(to, templateName, languageCode, components) {
+        try {
+            await whatsappClient.post('/messages', {
+                messaging_product: 'whatsapp',
+                to: to,
+                type: 'template',
+                template: {
+                    name: templateName,
+                    language: { code: languageCode },
+                    components: components
+                }
+            });
+            return true;
+        } catch (error) {
+            console.error('Error sending template:', error.response?.data || error.message);
+            return false;
+        }
     }
 };
 

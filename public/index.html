@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dental Bot Campaign Manager</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background-color: #f5f5f7; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        h1 { color: #333; }
+        button { background: #007AFF; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px; transition: opacity 0.2s; }
+        button:hover { opacity: 0.9; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
+        th { color: #666; font-weight: 600; }
+        .success { color: #34c759; }
+        .error { color: #ff3b30; }
+        .loading { opacity: 0.5; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <h1>🤖 Dental Bot Campaign</h1>
+    
+    <div class="card">
+        <h2>1. Import Leads</h2>
+        <p>Preia contactele din Google Sheet.</p>
+        <button id="loadBtn" onclick="loadLeads()">🔄 Load Leads from Sheet</button>
+    </div>
+
+    <div class="card" id="actionCard" style="display:none;">
+        <h2>2. Send Campaign</h2>
+        <p>Template: <strong>dental</strong> (Variables: Name)</p>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span>Leads Loaded: <strong id="count">0</strong></span>
+            <button id="sendBtn" onclick="sendCampaign()">🚀 Send to All</button>
+        </div>
+        
+        <table id="leadsTable">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="leadsBody"></tbody>
+        </table>
+    </div>
+
+    <script>
+        let leadsData = [];
+
+        async function loadLeads() {
+            const btn = document.getElementById('loadBtn');
+            btn.textContent = 'Loading...';
+            btn.classList.add('loading');
+            
+            try {
+                const res = await fetch('/api/leads');
+                const data = await res.json();
+                leadsData = data;
+                
+                renderTable();
+                document.getElementById('actionCard').style.display = 'block';
+                document.getElementById('count').textContent = leadsData.length;
+            } catch (e) {
+                alert('Error loading leads: ' + e.message);
+            } finally {
+                btn.textContent = '🔄 Load Leads from Sheet';
+                btn.classList.remove('loading');
+            }
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('leadsBody');
+            tbody.innerHTML = leadsData.map((lead, index) => `
+                <tr id="row-${index}">
+                    <td>${lead.name}</td>
+                    <td>${lead.phone}</td>
+                    <td class="status">${lead.status || 'Pending'}</td>
+                </tr>
+            `).join('');
+        }
+
+        async function sendCampaign() {
+            const btn = document.getElementById('sendBtn');
+            if(!confirm(`Are you sure you want to send messages to ${leadsData.length} people?`)) return;
+            
+            btn.disabled = true;
+            
+            for (let i = 0; i < leadsData.length; i++) {
+                const lead = leadsData[i];
+                const rowStatus = document.querySelector(`#row-${i} .status`);
+                
+                rowStatus.textContent = 'Sending...';
+                
+                try {
+                    const res = await fetch('/api/send', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(lead)
+                    });
+                    const result = await res.json();
+                    
+                    if (result.success) {
+                        rowStatus.textContent = '✅ Sent';
+                        rowStatus.className = 'status success';
+                        lead.status = 'Sent';
+                    } else {
+                        rowStatus.textContent = '❌ Failed';
+                        rowStatus.className = 'status error';
+                    }
+                } catch (e) {
+                    rowStatus.textContent = '❌ Error';
+                }
+                
+                // Small delay to avoid rate limits
+                await new Promise(r => setTimeout(r, 500));
+            }
+            
+            btn.disabled = false;
+            alert('Campaign Finished!');
+        }
+    </script>
+</body>
+</html>

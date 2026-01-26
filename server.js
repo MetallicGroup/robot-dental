@@ -6,9 +6,41 @@ const ConversationManager = require('./services/conversationManager');
 
 const app = express();
 app.use(bodyParser.json());
+app.use(express.static('public')); // Serve frontend
 
 const PORT = process.env.PORT || 3000;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+
+// API: Get Leads from Sheet
+const SheetService = require('./services/sheetService');
+app.get('/api/leads', async (req, res) => {
+    try {
+        const leads = await SheetService.getLeads();
+        res.json(leads);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// API: Send Template
+const WhatsappService = require('./services/whatsappService');
+app.post('/api/send', async (req, res) => {
+    const { name, phone } = req.body;
+
+    // Template: "dental"
+    // Variable {{1}}: name
+    const components = [
+        {
+            type: 'body',
+            parameters: [
+                { type: 'text', text: name }
+            ]
+        }
+    ];
+
+    const success = await WhatsappService.sendTemplate(phone, 'dental', 'ro', components);
+    res.json({ success });
+});
 
 // Verification Endpoint for WhatsApp Webhook
 app.get('/webhook', (req, res) => {
