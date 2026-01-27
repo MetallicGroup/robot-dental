@@ -289,27 +289,33 @@ const IstomaService = {
             console.log(`[DEBUG] Response status:`, response.status, response.statusText);
             console.log(`[DEBUG] Response data (first 500 chars):`, response.data?.substring(0, 500));
             
-            // Parse XML response
+            // Parse response (can be XML or JSON)
             const parsed = parseResponse(response.data);
             if (!parsed) {
                 console.log(`[INFO] No slots available for location ${locId}`);
                 continue;
             }
             
-            // XML structure: ArrayOfIntervalCabinetAPIModel.IntervalCabinetAPIModel
-            const arrayKey = Object.keys(parsed).find(k => k.toLowerCase().includes('interval') || k.toLowerCase().includes('array'));
-            if (!arrayKey) {
-                console.log(`[INFO] No interval array found in response for location ${locId}`);
-                continue;
+            // Handle both JSON array (direct) and XML structure
+            let slots = [];
+            if (Array.isArray(parsed)) {
+                // Direct JSON array
+                slots = parsed;
+            } else {
+                // XML structure: ArrayOfIntervalCabinetAPIModel.IntervalCabinetAPIModel
+                const arrayKey = Object.keys(parsed).find(k => k.toLowerCase().includes('interval') || k.toLowerCase().includes('array'));
+                if (arrayKey) {
+                    const data = parsed[arrayKey];
+                    if (data) {
+                        slots = Array.isArray(data) ? data : [data];
+                    }
+                }
             }
             
-            const data = parsed[arrayKey];
-            if (!data) {
-                console.log(`[INFO] Empty interval data for location ${locId}`);
+            if (slots.length === 0) {
+                console.log(`[INFO] No interval slots found in response for location ${locId}`);
                 continue;
             }
-            
-            const slots = Array.isArray(data) ? data : [data];
             console.log(`[DEBUG] Extracted ${slots.length} slots from GetListaIntervaleActivitate`);
             if (slots.length > 0) {
                 console.log(`[DEBUG] First slot sample:`, JSON.stringify(slots[0]).substring(0, 200));
@@ -358,27 +364,33 @@ const IstomaService = {
             console.log(`[DEBUG] Response status:`, response.status, response.statusText);
             console.log(`[DEBUG] Response data (first 500 chars):`, response.data?.substring(0, 500));
             
-            // Parse XML response
+            // Parse response (can be XML or JSON)
             const parsed = parseResponse(response.data);
             if (!parsed) {
                 console.log(`[INFO] No slots available for location ${locId}`);
                 continue;
             }
             
-            // XML structure: ArrayOfIntervalCabinetAPIModel.IntervalCabinetAPIModel
-            const arrayKey = Object.keys(parsed).find(k => k.toLowerCase().includes('interval') || k.toLowerCase().includes('array'));
-            if (!arrayKey) {
-                console.log(`[INFO] No interval array found in response for location ${locId}`);
-                continue;
+            // Handle both JSON array (direct) and XML structure
+            let slots = [];
+            if (Array.isArray(parsed)) {
+                // Direct JSON array
+                slots = parsed;
+            } else {
+                // XML structure: ArrayOfIntervalCabinetAPIModel.IntervalCabinetAPIModel
+                const arrayKey = Object.keys(parsed).find(k => k.toLowerCase().includes('interval') || k.toLowerCase().includes('array'));
+                if (arrayKey) {
+                    const data = parsed[arrayKey];
+                    if (data) {
+                        slots = Array.isArray(data) ? data : [data];
+                    }
+                }
             }
             
-            const data = parsed[arrayKey];
-            if (!data) {
-                console.log(`[INFO] Empty interval data for location ${locId}`);
+            if (slots.length === 0) {
+                console.log(`[INFO] No interval slots found in response for location ${locId}`);
                 continue;
             }
-            
-            const slots = Array.isArray(data) ? data : [data];
             console.log(`[DEBUG] Extracted ${slots.length} slots from GetPrimeleSloturiLibere`);
             if (slots.length > 0) {
                 console.log(`[DEBUG] First slot sample:`, JSON.stringify(slots[0]).substring(0, 200));
