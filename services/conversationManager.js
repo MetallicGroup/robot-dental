@@ -244,12 +244,18 @@ const ConversationManager = {
                 cabinetId
             );
 
-            const isSuccess = (
-                response === 13 ||
-                response === '13' ||
-                (typeof response === 'string' && response.includes('13')) ||
-                (response && (response.message === '13' || response.Message === '13'))
-            );
+            // Per docs: AdaugaProgramare returns "13" on success
+            // Response can be: "13", 13, or wrapped in object
+            let isSuccess = false;
+            if (typeof response === 'string') {
+                isSuccess = response.trim() === '13' || response.trim().startsWith('13 ');
+            } else if (typeof response === 'number') {
+                isSuccess = response === 13;
+            } else if (response && typeof response === 'object') {
+                // Check if wrapped in response object
+                const respStr = String(response.response || response.message || response.Message || response);
+                isSuccess = respStr.includes('13');
+            }
 
             if (isSuccess) {
                 AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'confirmed', {
@@ -260,20 +266,27 @@ const ConversationManager = {
                 await WhatsappService.sendMessage(from, `Programarea ta a fost confirmată pentru ${date} la ora ${time}!`);
             } else {
                 // Fallback: trimitem o solicitare de programare chiar dacă slotul nu este valid în Istoma
+                // Note: cabinetId este IdCabinet, dar pentru AdaugaSolicitareProgramareCuData avem nevoie de pIdSediu
+                // Pentru moment folosim cabinetId ca locationId (sau 0 dacă nu e setat)
+                const locationIdForRequest = cabinetId || 0;
                 const reqResponse = await IstomaService.addAppointmentRequest(
                     patientPayload,
                     date,
                     time,
                     doctorId,
-                    cabinetId
+                    locationIdForRequest
                 );
 
-                const reqSuccess = (
-                    reqResponse === 13 ||
-                    reqResponse === '13' ||
-                    (typeof reqResponse === 'string' && reqResponse.includes('13')) ||
-                    (reqResponse && (reqResponse.message === '13' || reqResponse.Message === '13'))
-                );
+                // Per docs: AdaugaSolicitareProgramareCuData returns "13" on success
+                let reqSuccess = false;
+                if (typeof reqResponse === 'string') {
+                    reqSuccess = reqResponse.trim() === '13' || reqResponse.trim().startsWith('13 ');
+                } else if (typeof reqResponse === 'number') {
+                    reqSuccess = reqResponse === 13;
+                } else if (reqResponse && typeof reqResponse === 'object') {
+                    const respStr = String(reqResponse.response || reqResponse.message || reqResponse.Message || reqResponse);
+                    reqSuccess = respStr.includes('13');
+                }
 
                 if (reqSuccess) {
                     AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'request_sent', {

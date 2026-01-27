@@ -103,52 +103,59 @@ const IstomaService = {
     },
 
     async checkPatient(phone) {
-        // This one can return null as "not found" vs "error", but for now let's bubble up to be safe?
-        // Actually checkPatient returning null is a valid "not found" logic in some apps, 
-        // BUT if it is a connection error, we want to know.
-        // Let's propagate error for connection, but maybe handle 404? 
-        // The API likely returns empty list for not found, not 404.
+        // VerificaPacient returns { lista: [...] } per documentation
         const response = await apiClient.get('VerificaPacient', {
             params: formatParams({
                 pTelefon: phone,
                 pAdresaMail: '',
-                pIdPacient: 0
+                pIdPacient: '0' // String per docs
             })
         });
-        return response.data;
+        // Response structure: { lista: [...] } or { response: { lista: [...] } }
+        let data = response.data;
+        if (data && data.response && data.response.lista) {
+            return { lista: data.response.lista };
+        }
+        if (data && data.lista) {
+            return data;
+        }
+        // If not found, return empty lista
+        return { lista: [] };
     },
 
     async addPatient(patientData) {
+        // AdaugaPacient returns "13 $#$ idPacientNou" on success per docs
         const params = {
             pCheie: API_KEY,
             pNume: patientData.nume || '',
             pPrenume: patientData.prenume || '',
             pTelefon: patientData.telefon || '',
             pAdresaMail: patientData.email || '',
-            pCnp: '',
-            pDataNastereDDMMYYYY: '01011990',
-            pObservatii: 'WhatsApp Bot',
-            pSex: 0,
-            pLimba: 28,
-            pMedic: 0,
-            pMedicCoordonator: 0,
-            pIdentitatePersoanaContact: '',
-            pTelefonPersoanaContact: '',
-            pIdRecomandant: 0,
-            pTelefonSecundar: '',
-            pEmailSecundar: '',
-            pTelefonTertiar: '',
-            pEmailTertiar: '',
-            pNotificaPrinWebhook: '',
-            pLinkFisaExtern: '',
-            pTipAct: 0,
-            pSerieAct: '',
-            pNumarAct: '',
-            pIdCanalMarketing: 0
+            pCnp: patientData.cnp || '',
+            pDataNastereDDMMYYYY: patientData.dataNastere || '01011990', // Format: ddMMyyyy
+            pObservatii: patientData.observatii || 'WhatsApp Bot',
+            pSex: patientData.sex || '0', // 0, 1, or 2
+            pLimba: patientData.limba || '28', // 0 or 28-33
+            pMedic: patientData.medic || '0',
+            pMedicCoordonator: patientData.medicCoordonator || '0',
+            pIdentitatePersoanaContact: patientData.identitatePersoanaContact || '',
+            pTelefonPersoanaContact: patientData.telefonPersoanaContact || '',
+            pIdRecomandant: patientData.idRecomandant || '0',
+            pTelefonSecundar: patientData.telefonSecundar || '',
+            pEmailSecundar: patientData.emailSecundar || '',
+            pTelefonTertiar: patientData.telefonTertiar || '',
+            pEmailTertiar: patientData.emailTertiar || '',
+            pNotificaPrinWebhook: patientData.notificaPrinWebhook || '',
+            pLinkFisaExtern: patientData.linkFisaExtern || '',
+            pTipAct: patientData.tipAct || '0', // 0, 1, 2, or 3
+            pSerieAct: patientData.serieAct || '',
+            pNumarAct: patientData.numarAct || '',
+            pIdCanalMarketing: patientData.idCanalMarketing || '0'
         };
         const response = await apiClient.post('AdaugaPacient', querystring.stringify(params), {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         });
+        // Response: "13 $#$ idPacientNou" or "13" or error code
         return response.data;
     },
 
@@ -351,49 +358,67 @@ const IstomaService = {
     },
 
     async addAppointment(patientData, date, time, duration = 30, doctorId, cabinetId = 0) {
+        // Format: pDataDDMMYYYYHHMM = DDMMYYYYHHMM (no separators)
+        // date is DD.MM.YYYY, time is HH:MM
         const dateTime = date.replace(/\./g, '') + time.replace(':', '');
+        
+        console.log(`[DEBUG] addAppointment: date=${date}, time=${time}, dateTime=${dateTime}, doctorId=${doctorId}, cabinetId=${cabinetId}`);
 
         const params = {
-            pNumeCompletPacient: `${patientData.nume} ${patientData.prenume}`,
+            pNumeCompletPacient: `${patientData.nume} ${patientData.prenume}`.trim(),
             pTelefonPacient: patientData.telefon,
             pAdresaMailPacient: patientData.email || '',
-            pDataDDMMYYYYHHMM: dateTime,
-            pDurataInMinute: duration,
-            pIdSpecialist: doctorId,
-            pIdCabinet: cabinetId,
-            pCategorie: 'Consultatie',
-            pObservatii: 'Programat prin WhatsApp'
+            pDataDDMMYYYYHHMM: dateTime, // Format: DDMMYYYYHHMM
+            pDurataInMinute: String(duration), // String per docs
+            pIdSpecialist: String(doctorId || '0'), // int per docs, but we'll send as string
+            pIdCabinet: String(cabinetId || '0'), // string per docs
+            pCategorie: patientData.categorie || 'Consultatie',
+            pObservatii: patientData.observatii || 'Programat prin WhatsApp'
         };
+
+        console.log(`[DEBUG] AdaugaProgramare params:`, JSON.stringify(params, null, 2));
 
         // POST with params in URL (QueryString) and empty body
         const response = await apiClient.post('AdaugaProgramare', null, { 
             params: formatParams(params),
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         });
+        
+        console.log(`[DEBUG] AdaugaProgramare response:`, response.data);
+        // Response: "13" on success per docs
         return response.data;
     },
 
-    // Fallback: send a scheduling REQUEST even dacă nu avem slot valid (AdaugaSolicitareProgramareCuData)
-    async addAppointmentRequest(patientData, date, time, doctorId, locationId = 0, category = 'Consultatie') {
+    // Fallback: send a scheduling REQUEST (AdaugaSolicitareProgramareCuData)
+    // Per docs: AdaugaSolicitareProgramareCuData(string pCheie, string pDataDDMMYYYYHHMM, string pNumeComplet, string pTelefon, string pAdresaMail, string pObservatii, string pIdSursa, string pIdCampanie, string pIdSediu, string pCategorie, string pNumeMedic)
+    async addAppointmentRequest(patientData, date, time, doctorId, locationId = 0, category = 'Consultatie', doctorName = '') {
+        // Format: pDataDDMMYYYYHHMM = DDMMYYYYHHMM
         const dateTime = date.replace(/\./g, '') + time.replace(':', '');
+        
+        console.log(`[DEBUG] addAppointmentRequest: date=${date}, time=${time}, dateTime=${dateTime}, locationId=${locationId}`);
 
         const params = {
+            pDataDDMMYYYYHHMM: dateTime, // Format: DDMMYYYYHHMM
             pNumeComplet: `${patientData.nume} ${patientData.prenume}`.trim(),
             pTelefon: patientData.telefon,
             pAdresaMail: patientData.email || '',
-            pDataDDMMYYYYHHMM: dateTime,
-            pObservatii: 'Solicitare programare din WhatsApp (fara verificare slot)',
-            pIdSursa: 0,
-            pIdCampanie: 0,
-            pIdSediu: locationId || 0,
-            pCategorie: category,
-            pNumeMedic: '' // lăsăm liber; dacă ai nevoie, poți completa numele medicului
+            pObservatii: patientData.observatii || 'Solicitare programare din WhatsApp',
+            pIdSursa: String(patientData.idSursa || '0'), // string per docs
+            pIdCampanie: String(patientData.idCampanie || '0'), // string per docs
+            pIdSediu: String(locationId || '0'), // string per docs
+            pCategorie: category || 'Consultatie',
+            pNumeMedic: doctorName || '' // Optional: name of doctor if known
         };
+
+        console.log(`[DEBUG] AdaugaSolicitareProgramareCuData params:`, JSON.stringify(params, null, 2));
 
         const response = await apiClient.post('AdaugaSolicitareProgramareCuData', null, { 
             params: formatParams(params),
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         });
+        
+        console.log(`[DEBUG] AdaugaSolicitareProgramareCuData response:`, response.data);
+        // Response: "13" on success per docs
         return response.data;
     }
 };
