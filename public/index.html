@@ -270,8 +270,13 @@
         async function reloadAppointments() {
             try {
                 const res = await fetch('/api/appointments');
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    throw new Error(data.error || `HTTP ${res.status}`);
+                }
                 appointments = await res.json();
                 renderAppointments();
+                renderSolicitari();
             } catch (e) {
                 alert('Eroare la încărcarea programărilor: ' + e.message);
             }
@@ -279,6 +284,11 @@
 
         function renderAppointments() {
             const tbody = document.getElementById('appointmentsBody');
+            if (!Array.isArray(appointments)) {
+                console.warn('appointments is not an array:', appointments);
+                tbody.innerHTML = '<tr><td colspan="8">Nu pot afișa programările (răspuns invalid de la server).</td></tr>';
+                return;
+            }
             if (!appointments || appointments.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="8">Nu există programări înregistrate încă.</td></tr>';
                 return;
