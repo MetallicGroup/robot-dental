@@ -1,15 +1,26 @@
 const axios = require('axios');
 const querystring = require('querystring');
+const { XMLParser } = require('fast-xml-parser');
 require('dotenv').config();
 
 const BASE_URL = process.env.ISTOMA_BASE_URL;
 const API_KEY = process.env.ISTOMA_KEY;
 
+// XML Parser configuration
+const xmlParser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '@_',
+    parseAttributeValue: true,
+    trimValues: true,
+    ignoreNameSpace: false,
+    parseTrueNumberOnly: false
+});
+
 // Create separate clients for GET (no Content-Type header) and POST (with Content-Type)
 const apiClient = axios.create({
     baseURL: BASE_URL,
-    // Don't set Content-Type for GET requests - let axios handle it
-    responseType: 'json'
+    // Istoma returns XML, so we need to parse it manually
+    responseType: 'text'
 });
 
 // For POST requests, we'll set Content-Type in the request itself
@@ -19,28 +30,59 @@ const formatParams = (params) => {
     return { pCheie: API_KEY, ...params }; // Return object for axios params
 };
 
+// Helper to parse XML or JSON response from Istoma
+const parseResponse = (rawData) => {
+    if (!rawData || typeof rawData !== 'string' || !rawData.trim()) {
+        return null;
+    }
+
+    // Try XML first (Istoma returns XML)
+    if (rawData.trim().startsWith('<')) {
+        try {
+            const parsed = xmlParser.parse(rawData);
+            console.log('[DEBUG] Parsed XML response');
+            return parsed;
+        } catch (e) {
+            console.warn('[WARN] Failed to parse XML:', e.message);
+        }
+    }
+
+    // Try JSON as fallback
+    try {
+        const parsed = JSON.parse(rawData);
+        console.log('[DEBUG] Parsed JSON response');
+        return parsed;
+    } catch (e) {
+        console.warn('[WARN] Response is neither valid XML nor JSON');
+        return null;
+    }
+};
+
 // Helper to extract array from Istoma response (handles various wrapper structures)
 const extractArrayFromResponse = (responseData) => {
     if (responseData === '' || responseData === undefined || responseData === null) {
         console.log('[DEBUG] Response data is null/empty/undefined');
-        console.log('[DEBUG] Response data type:', typeof responseData);
         return [];
     }
 
-    // If we got a string, try to parse JSON; otherwise, treat empty string as no data
+    // If we got a string, parse it (XML or JSON)
     if (typeof responseData === 'string') {
         if (!responseData.trim()) {
             console.log('[DEBUG] Response data is empty string');
             return [];
         }
-        try {
-            const parsed = JSON.parse(responseData);
-            responseData = parsed;
-            console.log('[DEBUG] Parsed string response into JSON object');
-        } catch (e) {
-            console.warn('[WARN] Response is string but not valid JSON, returning empty array');
+        
+        // Check for XML nil attribute (i:nil="true")
+        if (responseData.includes('i:nil="true"') || responseData.includes('i:nil=\'true\'')) {
+            console.log('[DEBUG] XML response indicates null/empty (i:nil="true")');
             return [];
         }
+        
+        const parsed = parseResponse(responseData);
+        if (!parsed) {
+            return [];
+        }
+        responseData = parsed;
     }
 
     // Direct array
@@ -94,16 +136,38 @@ const extractArrayFromResponse = (responseData) => {
 const IstomaService = {
     async getDoctors() {
         const response = await apiClient.get('GetMedici', { params: formatParams({}) });
-        return extractArrayFromResponse(response.data);
+        // Response is XML: <ArrayOfMedicAPIModel>...</ArrayOfMedicAPIModel>
+        const parsed = parseResponse(response.data);
+        if (!parsed) return [];
+        
+        // XML structure: ArrayOfMedicAPIModel.MedicAPIModel or ArrayOfMedicAPIModel['MedicAPIModel']
+        const arrayKey = Object.keys(parsed).find(k => k.toLowerCase().includes('medic') || k.toLowerCase().includes('array'));
+        if (!arrayKey) return [];
+        
+        const data = parsed[arrayKey];
+        if (!data) return [];
+        
+        // If it's an array, return it; if single object, wrap in array
+        return Array.isArray(data) ? data : [data];
     },
 
     async getLocations() {
         const response = await apiClient.get('GetListaSedii', { params: formatParams({}) });
-        return extractArrayFromResponse(response.data);
+        // Response is XML: <ArrayOfSediuAPIModel>...</ArrayOfSediuAPIModel>
+        const parsed = parseResponse(response.data);
+        if (!parsed) return [];
+        
+        const arrayKey = Object.keys(parsed).find(k => k.toLowerCase().includes('sediu') || k.toLowerCase().includes('array'));
+        if (!arrayKey) return [];
+        
+        const data = parsed[arrayKey];
+        if (!data) return [];
+        
+        return Array.isArray(data) ? data : [data];
     },
 
     async checkPatient(phone) {
-        // VerificaPacient returns { lista: [...] } per documentation
+        // VerificaPacient returns XML: <ArrayOfPacientAPIModel>...</ArrayOfPacientAPIModel>
         const response = await apiClient.get('VerificaPacient', {
             params: formatParams({
                 pTelefon: phone,
@@ -111,16 +175,25 @@ const IstomaService = {
                 pIdPacient: '0' // String per docs
             })
         });
-        // Response structure: { lista: [...] } or { response: { lista: [...] } }
-        let data = response.data;
-        if (data && data.response && data.response.lista) {
-            return { lista: data.response.lista };
+        
+        const parsed = parseResponse(response.data);
+        if (!parsed) {
+            return { lista: [] };
         }
-        if (data && data.lista) {
-            return data;
+        
+        // XML structure: ArrayOfPacientAPIModel.PacientAPIModel
+        const arrayKey = Object.keys(parsed).find(k => k.toLowerCase().includes('pacient') || k.toLowerCase().includes('array'));
+        if (!arrayKey) {
+            return { lista: [] };
         }
-        // If not found, return empty lista
-        return { lista: [] };
+        
+        const data = parsed[arrayKey];
+        if (!data) {
+            return { lista: [] };
+        }
+        
+        const lista = Array.isArray(data) ? data : [data];
+        return { lista };
     },
 
     async addPatient(patientData) {
@@ -152,10 +225,14 @@ const IstomaService = {
             pNumarAct: patientData.numarAct || '',
             pIdCanalMarketing: patientData.idCanalMarketing || '0'
         };
-        const response = await apiClient.post('AdaugaPacient', querystring.stringify(params), {
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        const formData = querystring.stringify(params);
+        const response = await apiClient.post('AdaugaPacient', formData, {
+            headers: { 
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': Buffer.byteLength(formData)
+            }
         });
-        // Response: "13 $#$ idPacientNou" or "13" or error code
+        // Response: "13 $#$ idPacientNou" or "13" or error code (can be XML or plain text)
         return response.data;
     },
 
@@ -192,9 +269,7 @@ const IstomaService = {
                 console.log(`[DEBUG] Calling GetListaIntervaleActivitate URL:`, fullUrl.substring(0, 200));
                 
                 response = await apiClient.get('GetListaIntervaleActivitate', { 
-                    params: formatParams(params),
-                    responseType: 'text',           // capture raw text; we'll parse manually
-                    transformResponse: x => x
+                    params: formatParams(params)
                 });
             } catch (error) {
                 console.error(`[ERROR] GetListaIntervaleActivitate failed for location ${locId}:`, error.message);
@@ -203,55 +278,30 @@ const IstomaService = {
                 continue; // Skip this location and try next
             }
             console.log(`[DEBUG] GetListaIntervaleActivitate called for date ${date}, location ${locId}, doctors: ${doctorIdsStr}`);
-            console.log(`[DEBUG] Response headers:`, JSON.stringify(response.headers, null, 2));
             console.log(`[DEBUG] Response status:`, response.status, response.statusText);
-            console.log(`[DEBUG] Response data type:`, typeof response.data);
-            console.log(`[DEBUG] Response data value:`, response.data);
+            console.log(`[DEBUG] Response data (first 500 chars):`, response.data?.substring(0, 500));
             
-            // If data is null, try to get raw response
-            let responseData = response.data;
-            // If data is a string, try to parse JSON
-            if (typeof responseData === 'string') {
-                if (!responseData.trim()) {
-                    console.log('[DEBUG] response.data is empty string');
-                } else {
-                    try {
-                        responseData = JSON.parse(responseData);
-                        console.log('[DEBUG] Parsed response.data string to JSON');
-                    } catch (e) {
-                        console.log('[DEBUG] response.data is string but not JSON:', e.message);
-                    }
-                }
+            // Parse XML response
+            const parsed = parseResponse(response.data);
+            if (!parsed) {
+                console.log(`[INFO] No slots available for location ${locId}`);
+                continue;
             }
-            if (responseData === null || responseData === undefined) {
-                console.log(`[WARN] Response data is null! Checking if response has other properties...`);
-                console.log(`[DEBUG] Response keys:`, Object.keys(response));
-                
-                // Try to access raw response if available
-                if (response.request && response.request.response) {
-                    const rawResponse = response.request.response;
-                    console.log(`[DEBUG] Raw response text:`, rawResponse.substring(0, 500));
-                    
-                    // Try to parse raw response as JSON
-                    if (typeof rawResponse === 'string' && rawResponse.trim()) {
-                        try {
-                            responseData = JSON.parse(rawResponse);
-                            console.log(`[DEBUG] Successfully parsed raw response as JSON`);
-                        } catch (e) {
-                            console.log(`[DEBUG] Raw response is not valid JSON:`, e.message);
-                        }
-                    }
-                }
-                
-                // If still null, API might return null for empty results (which is valid)
-                if (responseData === null || responseData === undefined) {
-                    console.log(`[INFO] API returned null - likely no slots available (this is valid)`);
-                    responseData = null; // Will be handled by extractArrayFromResponse
-                }
-            } else {
-                console.log(`[DEBUG] Full response.data:`, JSON.stringify(responseData, null, 2).substring(0, 1000));
+            
+            // XML structure: ArrayOfIntervalCabinetAPIModel.IntervalCabinetAPIModel
+            const arrayKey = Object.keys(parsed).find(k => k.toLowerCase().includes('interval') || k.toLowerCase().includes('array'));
+            if (!arrayKey) {
+                console.log(`[INFO] No interval array found in response for location ${locId}`);
+                continue;
             }
-            const slots = extractArrayFromResponse(responseData);
+            
+            const data = parsed[arrayKey];
+            if (!data) {
+                console.log(`[INFO] Empty interval data for location ${locId}`);
+                continue;
+            }
+            
+            const slots = Array.isArray(data) ? data : [data];
             console.log(`[DEBUG] Extracted ${slots.length} slots from GetListaIntervaleActivitate`);
             if (slots.length > 0) {
                 console.log(`[DEBUG] First slot sample:`, JSON.stringify(slots[0]).substring(0, 200));
@@ -288,9 +338,7 @@ const IstomaService = {
                 console.log(`[DEBUG] Calling GetPrimeleSloturiLibere URL:`, fullUrl.substring(0, 200));
                 
                 response = await apiClient.get('GetPrimeleSloturiLibere', { 
-                    params: formatParams(params),
-                    responseType: 'text',           // capture raw text; we'll parse manually
-                    transformResponse: x => x
+                    params: formatParams(params)
                 });
             } catch (error) {
                 console.error(`[ERROR] GetPrimeleSloturiLibere failed for location ${locId}:`, error.message);
@@ -299,55 +347,30 @@ const IstomaService = {
                 continue; // Skip this location and try next
             }
             console.log(`[DEBUG] GetPrimeleSloturiLibere called for location ${locId}, doctors: ${doctorIdsStr}, count: ${count}`);
-            console.log(`[DEBUG] Response headers:`, JSON.stringify(response.headers, null, 2));
             console.log(`[DEBUG] Response status:`, response.status, response.statusText);
-            console.log(`[DEBUG] Response data type:`, typeof response.data);
-            console.log(`[DEBUG] Response data value:`, response.data);
+            console.log(`[DEBUG] Response data (first 500 chars):`, response.data?.substring(0, 500));
             
-            // If data is null, try to get raw response
-            let responseData = response.data;
-            // If data is a string, try to parse JSON
-            if (typeof responseData === 'string') {
-                if (!responseData.trim()) {
-                    console.log('[DEBUG] response.data is empty string');
-                } else {
-                    try {
-                        responseData = JSON.parse(responseData);
-                        console.log('[DEBUG] Parsed response.data string to JSON');
-                    } catch (e) {
-                        console.log('[DEBUG] response.data is string but not JSON:', e.message);
-                    }
-                }
+            // Parse XML response
+            const parsed = parseResponse(response.data);
+            if (!parsed) {
+                console.log(`[INFO] No slots available for location ${locId}`);
+                continue;
             }
-            if (responseData === null || responseData === undefined) {
-                console.log(`[WARN] Response data is null! Checking if response has other properties...`);
-                console.log(`[DEBUG] Response keys:`, Object.keys(response));
-                
-                // Try to access raw response if available
-                if (response.request && response.request.response) {
-                    const rawResponse = response.request.response;
-                    console.log(`[DEBUG] Raw response text:`, rawResponse.substring(0, 500));
-                    
-                    // Try to parse raw response as JSON
-                    if (typeof rawResponse === 'string' && rawResponse.trim()) {
-                        try {
-                            responseData = JSON.parse(rawResponse);
-                            console.log(`[DEBUG] Successfully parsed raw response as JSON`);
-                        } catch (e) {
-                            console.log(`[DEBUG] Raw response is not valid JSON:`, e.message);
-                        }
-                    }
-                }
-                
-                // If still null, API might return null for empty results (which is valid)
-                if (responseData === null || responseData === undefined) {
-                    console.log(`[INFO] API returned null - likely no slots available (this is valid)`);
-                    responseData = null; // Will be handled by extractArrayFromResponse
-                }
-            } else {
-                console.log(`[DEBUG] Full response.data:`, JSON.stringify(responseData, null, 2).substring(0, 1000));
+            
+            // XML structure: ArrayOfIntervalCabinetAPIModel.IntervalCabinetAPIModel
+            const arrayKey = Object.keys(parsed).find(k => k.toLowerCase().includes('interval') || k.toLowerCase().includes('array'));
+            if (!arrayKey) {
+                console.log(`[INFO] No interval array found in response for location ${locId}`);
+                continue;
             }
-            const slots = extractArrayFromResponse(responseData);
+            
+            const data = parsed[arrayKey];
+            if (!data) {
+                console.log(`[INFO] Empty interval data for location ${locId}`);
+                continue;
+            }
+            
+            const slots = Array.isArray(data) ? data : [data];
             console.log(`[DEBUG] Extracted ${slots.length} slots from GetPrimeleSloturiLibere`);
             if (slots.length > 0) {
                 console.log(`[DEBUG] First slot sample:`, JSON.stringify(slots[0]).substring(0, 200));
@@ -378,14 +401,21 @@ const IstomaService = {
 
         console.log(`[DEBUG] AdaugaProgramare params:`, JSON.stringify(params, null, 2));
 
-        // POST with params in URL (QueryString) and empty body
-        const response = await apiClient.post('AdaugaProgramare', null, { 
-            params: formatParams(params),
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        // POST with form data (not query params!)
+        // Per docs, AdaugaProgramare expects POST with form-urlencoded body
+        const formData = querystring.stringify(formatParams(params));
+        
+        console.log(`[DEBUG] AdaugaProgramare form data:`, formData);
+        
+        const response = await apiClient.post('AdaugaProgramare', formData, { 
+            headers: { 
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': Buffer.byteLength(formData)
+            }
         });
         
         console.log(`[DEBUG] AdaugaProgramare response:`, response.data);
-        // Response: "13" on success per docs
+        // Response: "13" on success per docs (can be XML or plain text)
         return response.data;
     },
 
@@ -412,13 +442,20 @@ const IstomaService = {
 
         console.log(`[DEBUG] AdaugaSolicitareProgramareCuData params:`, JSON.stringify(params, null, 2));
 
-        const response = await apiClient.post('AdaugaSolicitareProgramareCuData', null, { 
-            params: formatParams(params),
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        // POST with form data (not query params!)
+        const formData = querystring.stringify(formatParams(params));
+        
+        console.log(`[DEBUG] AdaugaSolicitareProgramareCuData form data:`, formData);
+        
+        const response = await apiClient.post('AdaugaSolicitareProgramareCuData', formData, { 
+            headers: { 
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': Buffer.byteLength(formData)
+            }
         });
         
         console.log(`[DEBUG] AdaugaSolicitareProgramareCuData response:`, response.data);
-        // Response: "13" on success per docs
+        // Response: "13" on success per docs (can be XML or plain text)
         return response.data;
     }
 };

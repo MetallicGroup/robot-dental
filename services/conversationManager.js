@@ -86,17 +86,24 @@ const ConversationManager = {
                 }
 
                 // Handle both PascalCase and camelCase for IDs
-                const doctorIds = doctors.map(d => d.Id || d.id || d.ID).filter(id => id && id !== 0);
-                const locationIds = locations.map(l => l.ID || l.id || l.Id).filter(id => id && id !== 0);
+                let doctorIds = doctors.map(d => d.Id || d.id || d.ID || d['@_Id']).filter(id => id && id !== 0);
+                let locationIds = locations.map(l => l.ID || l.id || l.Id || l['@_ID'] || l['@_Id']).filter(id => id && id !== 0);
+
+                // Fallback: Use hardcoded doctor IDs if API returns empty
+                // Dr. COROIAN Andrei ID=4, Dr. CRETIU Raul ID=5, Dr. PAVEL Iulia ID=2, Dr. UDECI Madalina ID=3
+                if (doctorIds.length === 0) {
+                    console.warn('[WARN] GetMedici returned empty, using fallback doctor IDs');
+                    doctorIds = [2, 3, 4, 5]; // PAVEL=2, UDECI=3, COROIAN=4, CRETIU=5
+                }
+
+                // Fallback: Use default location if none found
+                if (locationIds.length === 0) {
+                    console.warn('[WARN] GetListaSedii returned empty, using fallback location ID');
+                    locationIds = [3]; // Default sediu ID (adjust if needed)
+                }
 
                 console.log(`[DEBUG] Extracted doctor IDs:`, doctorIds);
                 console.log(`[DEBUG] Extracted location IDs:`, locationIds);
-
-                if (doctorIds.length === 0) {
-                    console.error('[ERROR] No valid doctor IDs found!');
-                    await WhatsappService.sendMessage(from, `Eroare: Nu am putut găsi medici disponibili. Te rog contactează adminul.`);
-                    return;
-                }
 
                 // Get slots for specific date
                 let slots = await IstomaService.getAvailableSlots(formattedDate, doctorIds, locationIds);
@@ -118,8 +125,8 @@ const ConversationManager = {
                             `Sistemul de programări nu întoarce intervale libere pentru ${formattedDate}, dar putem încerca să te programăm oricum. Alege o oră din lista de mai jos (nu este verificată în Istoma, dar vom trimite programarea).`
                         );
 
-                        const fallbackDoctorId = doctorIds[0];
-                        const fallbackCabinetId = 0;
+                        const fallbackDoctorId = doctorIds[0] || 2; // Default to PAVEL if no doctors found
+                        const fallbackCabinetId = 1; // Cabinet 1 (nr crt 1)
                         const syntheticSlots = [];
 
                         // Generăm intervale din 09:00 până în 19:00, din 30 în 30 de minute
@@ -245,15 +252,20 @@ const ConversationManager = {
             );
 
             // Per docs: AdaugaProgramare returns "13" on success
-            // Response can be: "13", 13, or wrapped in object
+            // Response can be: "13", 13, XML, or wrapped in object
             let isSuccess = false;
             if (typeof response === 'string') {
-                isSuccess = response.trim() === '13' || response.trim().startsWith('13 ');
+                // Check for XML response containing "13" or plain text "13"
+                const responseText = response.trim();
+                isSuccess = responseText === '13' || 
+                           responseText.startsWith('13 ') || 
+                           responseText.includes('<string>13</string>') ||
+                           responseText.includes('>13<');
             } else if (typeof response === 'number') {
                 isSuccess = response === 13;
             } else if (response && typeof response === 'object') {
-                // Check if wrapped in response object
-                const respStr = String(response.response || response.message || response.Message || response);
+                // Check if wrapped in response object or XML structure
+                const respStr = String(response.response || response.message || response.Message || response.string || response);
                 isSuccess = respStr.includes('13');
             }
 
@@ -280,11 +292,15 @@ const ConversationManager = {
                 // Per docs: AdaugaSolicitareProgramareCuData returns "13" on success
                 let reqSuccess = false;
                 if (typeof reqResponse === 'string') {
-                    reqSuccess = reqResponse.trim() === '13' || reqResponse.trim().startsWith('13 ');
+                    const responseText = reqResponse.trim();
+                    reqSuccess = responseText === '13' || 
+                               responseText.startsWith('13 ') || 
+                               responseText.includes('<string>13</string>') ||
+                               responseText.includes('>13<');
                 } else if (typeof reqResponse === 'number') {
                     reqSuccess = reqResponse === 13;
                 } else if (reqResponse && typeof reqResponse === 'object') {
-                    const respStr = String(reqResponse.response || reqResponse.message || reqResponse.Message || reqResponse);
+                    const respStr = String(reqResponse.response || reqResponse.message || reqResponse.Message || reqResponse.string || reqResponse);
                     reqSuccess = respStr.includes('13');
                 }
 
@@ -393,10 +409,16 @@ const ConversationManager = {
                 time = startStr.split('T')[1].substring(0, 5);
             }
 
-            // Extract IDs - try multiple field name variations
-            const docId = slot.idMedic || slot.IdMedic || slot.id_medic || slot.IDMedic || 0;
-            const cabId = slot.idCabinet || slot.IdCabinet || slot.id_cabinet || slot.IDCabinet || 0;
-            const locId = slot.idLocatie || slot.IdLocatie || slot.id_locatie || slot.IDLocatie || slot.idSediu || slot.IdSediu || 0;
+            // Extract IDs - try multiple field name variations (including XML attributes)
+            const docId = slot.idMedic || slot.IdMedic || slot.id_medic || slot.IDMedic || 
+                         slot['@_IdMedic'] || slot['@_idMedic'] || slot['@_Id'] || 
+                         (slot.IdMedic && typeof slot.IdMedic === 'object' ? slot.IdMedic['#text'] : null) || 0;
+            const cabId = slot.idCabinet || slot.IdCabinet || slot.id_cabinet || slot.IDCabinet || 
+                         slot['@_IdCabinet'] || slot['@_idCabinet'] || 
+                         (slot.IdCabinet && typeof slot.IdCabinet === 'object' ? slot.IdCabinet['#text'] : null) || 
+                         1; // Default to Cabinet 1 if not found
+            const locId = slot.idLocatie || slot.IdLocatie || slot.id_locatie || slot.IDLocatie || 
+                         slot.idSediu || slot.IdSediu || slot['@_IdSediu'] || slot['@_idSediu'] || 0;
 
             // If multiple doctors free at 14:00, show 14:00 once? Or "14:00 (Dr X)", "14:00 (Dr Y)"?
             // User: "sa primeasca mesaj cu ora cu orele valabile care nu sunt acoperite"
