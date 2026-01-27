@@ -5,29 +5,14 @@ require('dotenv').config();
 const BASE_URL = process.env.ISTOMA_BASE_URL;
 const API_KEY = process.env.ISTOMA_KEY;
 
+// Create separate clients for GET (no Content-Type header) and POST (with Content-Type)
 const apiClient = axios.create({
     baseURL: BASE_URL,
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    // Force response to be treated as JSON, but also allow text
-    responseType: 'json',
-    transformResponse: [(data) => {
-        // If data is empty string, return null (will be handled later)
-        if (data === '' || data === null) {
-            return null;
-        }
-        // If already parsed, return as is
-        if (typeof data === 'object') {
-            return data;
-        }
-        // Try to parse as JSON
-        try {
-            return JSON.parse(data);
-        } catch (e) {
-            console.warn('[WARN] Failed to parse response as JSON:', data.substring(0, 200));
-            return data;
-        }
-    }]
+    // Don't set Content-Type for GET requests - let axios handle it
+    responseType: 'json'
 });
+
+// For POST requests, we'll set Content-Type in the request itself
 
 // Helper to format params
 const formatParams = (params) => {
@@ -145,7 +130,9 @@ const IstomaService = {
             pNumarAct: '',
             pIdCanalMarketing: 0
         };
-        const response = await apiClient.post('AdaugaPacient', querystring.stringify(params));
+        const response = await apiClient.post('AdaugaPacient', querystring.stringify(params), {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
         return response.data;
     },
 
@@ -291,7 +278,10 @@ const IstomaService = {
         };
 
         // POST with params in URL (QueryString) and empty body
-        const response = await apiClient.post('AdaugaProgramare', null, { params: formatParams(params) });
+        const response = await apiClient.post('AdaugaProgramare', null, { 
+            params: formatParams(params),
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
         return response.data;
     }
 };
