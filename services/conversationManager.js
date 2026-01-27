@@ -102,16 +102,41 @@ const ConversationManager = {
                 let usingFallback = false;
 
                 if (!slots || slots.length === 0) {
-                    // Fallback: Check for next available slots
+                    // Fallback 1: Check for next available slots from Istoma
                     const nextSlots = await IstomaService.getFirstFreeSlots(5, doctorIds, locationIds);
 
                     if (nextSlots && nextSlots.length > 0) {
                         slots = nextSlots;
                         usingFallback = true;
-                        await WhatsappService.sendMessage(from, `Din păcate nu sunt locuri libere pe ${formattedDate}. Dar am găsit aceste intervale libere în curând:`);
+                        await WhatsappService.sendMessage(from, `Din păcate sistemul nu raportează locuri libere exact pe ${formattedDate}. Dar am găsit aceste intervale libere în curând:`);
                     } else {
-                        await WhatsappService.sendMessage(from, `Din păcate nu sunt locuri libere pe ${formattedDate} și nici în zilele următoare. Te rog alege altă zi.`);
-                        return;
+                        // Fallback 2: Forțează orele – generăm un grid de ore și încercăm programarea oricum
+                        usingFallback = true;
+                        await WhatsappService.sendMessage(
+                            from,
+                            `Sistemul de programări nu întoarce intervale libere pentru ${formattedDate}, dar putem încerca să te programăm oricum. Alege o oră din lista de mai jos (nu este verificată în Istoma, dar vom trimite programarea).`
+                        );
+
+                        const fallbackDoctorId = doctorIds[0];
+                        const fallbackCabinetId = 0;
+                        const syntheticSlots = [];
+
+                        // Generăm intervale din 09:00 până în 19:00, din 30 în 30 de minute
+                        const startHour = 9;
+                        const endHour = 19;
+                        for (let h = startHour; h <= endHour; h++) {
+                            for (const m of [0, 30]) {
+                                const hh = String(h).padStart(2, '0');
+                                const mm = String(m).padStart(2, '0');
+                                syntheticSlots.push({
+                                    DataInceputInterval: `${formattedDate} ${hh}:${mm}`,
+                                    IdMedic: fallbackDoctorId,
+                                    IdCabinet: fallbackCabinetId
+                                });
+                            }
+                        }
+
+                        slots = syntheticSlots;
                     }
                 } else {
                     await WhatsappService.sendMessage(from, `Am găsit intervale libere pe ${formattedDate}:`);
