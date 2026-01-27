@@ -13,10 +13,21 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
 // API: Get Leads from Sheet
 const SheetService = require('./services/sheetService');
+const AppointmentStore = require('./services/appointmentStore');
 app.get('/api/leads', async (req, res) => {
     try {
         const leads = await SheetService.getLeads();
         res.json(leads);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// API: Appointments dashboard
+app.get('/api/appointments', (req, res) => {
+    try {
+        const items = AppointmentStore.getAll();
+        res.json(items);
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

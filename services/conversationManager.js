@@ -1,6 +1,7 @@
 const { addDays, format, nextDay, parse, isValid, getDay } = require('date-fns');
 const IstomaService = require('./istomaService');
 const WhatsappService = require('./whatsappService');
+const AppointmentStore = require('./appointmentStore');
 
 const userState = new Map(); // from -> { state, data }
 
@@ -221,6 +222,18 @@ const ConversationManager = {
                 email: ""
             };
 
+            // Log pending appointment in our local store (for dashboard)
+            AppointmentStore.add({
+                source: 'whatsapp',
+                status: 'pending',
+                patientPhone: from,
+                patientName: `${patientName} ${patientSurname}`.trim(),
+                date,
+                time,
+                doctorId,
+                cabinetId
+            });
+
             // Call AddAppointment
             const response = await IstomaService.addAppointment(
                 patientPayload,
@@ -239,6 +252,11 @@ const ConversationManager = {
             );
 
             if (isSuccess) {
+                AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'confirmed', {
+                    doctorId,
+                    cabinetId,
+                    raw: response
+                });
                 await WhatsappService.sendMessage(from, `Programarea ta a fost confirmată pentru ${date} la ora ${time}!`);
             } else {
                 // Fallback: trimitem o solicitare de programare chiar dacă slotul nu este valid în Istoma
@@ -258,8 +276,18 @@ const ConversationManager = {
                 );
 
                 if (reqSuccess) {
+                    AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'request_sent', {
+                        doctorId,
+                        cabinetId,
+                        raw: reqResponse
+                    });
                     await WhatsappService.sendMessage(from, `Am trimis solicitarea ta de programare pentru ${date} la ora ${time}. Vei fi contactat de recepție pentru confirmare.`);
                 } else {
+                    AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'error', {
+                        doctorId,
+                        cabinetId,
+                        raw: { response, reqResponse }
+                    });
                     await WhatsappService.sendMessage(from, `Am întâmpinat o eroare la salvarea programării. Te rog încearcă din nou.`);
                     console.error('AddAppointment failed response:', response);
                     console.error('AddAppointmentRequest failed response:', reqResponse);

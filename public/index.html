@@ -20,16 +20,16 @@
     </style>
 </head>
 <body>
-    <h1>🤖 Dental Bot Campaign</h1>
+    <h1>🤖 Dental Bot Dashboard</h1>
     
     <div class="card">
-        <h2>1. Import Leads</h2>
+        <h2>1. Import Leads (campanie WhatsApp)</h2>
         <p>Preia contactele din Google Sheet.</p>
         <button id="loadBtn" onclick="loadLeads()">🔄 Load Leads from Sheet</button>
     </div>
 
     <div class="card" id="actionCard" style="display:none;">
-        <h2>2. Send Campaign</h2>
+        <h2>2. Trimite Campanie</h2>
         <p>Template: <strong>dental</strong> (Variables: Name)</p>
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <span>Leads Loaded: <strong id="count">0</strong></span>
@@ -48,8 +48,30 @@
         </table>
     </div>
 
+    <div class="card">
+        <h2>3. Programări WhatsApp (live)</h2>
+        <p>Vezi toate încercările de programare venite prin botul WhatsApp.</p>
+        <button onclick="reloadAppointments()">🔄 Reîncarcă programările</button>
+        <table id="appointmentsTable">
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Ora</th>
+                    <th>Pacient</th>
+                    <th>Telefon</th>
+                    <th>Doctor ID</th>
+                    <th>Cabinet ID</th>
+                    <th>Status</th>
+                    <th>Sursă</th>
+                </tr>
+            </thead>
+            <tbody id="appointmentsBody"></tbody>
+        </table>
+    </div>
+
     <script>
         let leadsData = [];
+        let appointments = [];
 
         async function loadLeads() {
             const btn = document.getElementById('loadBtn');
@@ -122,6 +144,47 @@
             btn.disabled = false;
             alert('Campaign Finished!');
         }
+
+        async function reloadAppointments() {
+            try {
+                const res = await fetch('/api/appointments');
+                appointments = await res.json();
+                renderAppointments();
+            } catch (e) {
+                alert('Eroare la încărcarea programărilor: ' + e.message);
+            }
+        }
+
+        function renderAppointments() {
+            const tbody = document.getElementById('appointmentsBody');
+            if (!appointments || appointments.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8">Nu există programări înregistrate încă.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = appointments.map(a => `
+                <tr>
+                    <td>${a.date || ''}</td>
+                    <td>${a.time || ''}</td>
+                    <td>${a.patientName || ''}</td>
+                    <td>${a.patientPhone || ''}</td>
+                    <td>${a.doctorId || '-'}</td>
+                    <td>${a.cabinetId || '-'}</td>
+                    <td>${formatStatus(a.status)}</td>
+                    <td>${a.source || ''}</td>
+                </tr>
+            `).join('');
+        }
+
+        function formatStatus(status) {
+            if (status === 'confirmed') return '✅ Confirmată (API)';
+            if (status === 'request_sent') return '📨 Solicitare trimisă';
+            if (status === 'error') return '❌ Eroare la salvare';
+            if (status === 'pending') return '⏳ În curs';
+            return status || '';
+        }
+
+        // auto-load appointments on page load
+        window.addEventListener('load', reloadAppointments);
     </script>
 </body>
 </html>
