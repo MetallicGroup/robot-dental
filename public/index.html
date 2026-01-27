@@ -129,7 +129,54 @@
 
                 <div id="page-pacienti-solicitari" class="page" style="display:none;">
                     <div class="page-title">Solicitări de programare</div>
-                    <div class="page-subtitle">Programări care nu au fost confirmate de API (request_sent / error / pending).</div>
+                    <div class="page-subtitle">Adaugă manual pacienți și vezi programările care nu sunt confirmate în Istoma.</div>
+                    <div class="card" style="margin-bottom:14px;">
+                        <h2>Adaugă pacient manual</h2>
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:8px; font-size:13px; margin-top:8px;">
+                            <div>
+                                <label>Nume pacient</label>
+                                <input id="m_name" style="width:100%; padding:6px 8px; border-radius:6px; border:1px solid #e5e7eb;" />
+                            </div>
+                            <div>
+                                <label>Telefon</label>
+                                <input id="m_phone" style="width:100%; padding:6px 8px; border-radius:6px; border:1px solid #e5e7eb;" />
+                            </div>
+                            <div>
+                                <label>Data</label>
+                                <input id="m_date" type="date" style="width:100%; padding:6px 8px; border-radius:6px; border:1px solid #e5e7eb;" />
+                            </div>
+                            <div>
+                                <label>Ora</label>
+                                <input id="m_time" type="time" style="width:100%; padding:6px 8px; border-radius:6px; border:1px solid #e5e7eb;" />
+                            </div>
+                            <div>
+                                <label>Doctor</label>
+                                <select id="m_doctor" style="width:100%; padding:6px 8px; border-radius:6px; border:1px solid #e5e7eb;">
+                                    <option value="">(neatribuit)</option>
+                                    <option>Dr. COROIAN Andrei</option>
+                                    <option>Dr. CRETIU Raul</option>
+                                    <option>Dr. PAVEL Iulia</option>
+                                    <option>Dr. UDECI Madalina</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Cabinet</label>
+                                <select id="m_cabinet" style="width:100%; padding:6px 8px; border-radius:6px; border:1px solid #e5e7eb;">
+                                    <option value="">(necunoscut)</option>
+                                    <option>Cabinet 1</option>
+                                    <option>Cabinet 2</option>
+                                </select>
+                            </div>
+                            <div style="grid-column:1/-1;">
+                                <label>Ce are de făcut (opțional)</label>
+                                <input id="m_notes" style="width:100%; padding:6px 8px; border-radius:6px; border:1px solid #e5e7eb;" />
+                            </div>
+                        </div>
+                        <div style="margin-top:10px;">
+                            <button onclick="createManualAppointment()">➕ Adaugă pacient</button>
+                        </div>
+                    </div>
+
                     <div class="card">
                         <button onclick="reloadAppointments()">🔄 Reîncarcă</button>
                         <table id="solicitariTable">
@@ -311,7 +358,7 @@
             const tbody = document.getElementById('solicitariBody');
             if (!tbody) return;
             const filtered = (appointments || []).filter(a =>
-                a.status === 'request_sent' || a.status === 'pending' || a.status === 'error'
+                a.status === 'request_sent' || a.status === 'pending' || a.status === 'error' || a.status === 'manual_created'
             );
             if (filtered.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="5">Nu există solicitări de programare în așteptare.</td></tr>';
@@ -326,6 +373,59 @@
                     <td>${formatStatus(a.status)}</td>
                 </tr>
             `).join('');
+        }
+
+        async function createManualAppointment() {
+            const name = document.getElementById('m_name').value.trim();
+            const phone = document.getElementById('m_phone').value.trim();
+            const dateVal = document.getElementById('m_date').value;
+            const timeVal = document.getElementById('m_time').value;
+            const doctor = document.getElementById('m_doctor').value;
+            const cabinet = document.getElementById('m_cabinet').value;
+            const notes = document.getElementById('m_notes').value.trim();
+
+            if (!name || !phone || !dateVal || !timeVal) {
+                alert('Nume, telefon, dată și oră sunt obligatorii.');
+                return;
+            }
+
+            // Transformăm data YYYY-MM-DD în DD.MM.YYYY ca în restul sistemului
+            let date = dateVal;
+            if (dateVal.includes('-')) {
+                const [y, m, d] = dateVal.split('-');
+                date = `${d}.${m}.${y}`;
+            }
+
+            try {
+                const res = await fetch('/api/appointments', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        patientName: name,
+                        patientPhone: phone,
+                        date,
+                        time: timeVal,
+                        notes,
+                        doctorId: doctor || null,
+                        cabinetId: cabinet || null
+                    })
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    throw new Error(data.error || `HTTP ${res.status}`);
+                }
+                await reloadAppointments();
+                document.getElementById('m_name').value = '';
+                document.getElementById('m_phone').value = '';
+                document.getElementById('m_date').value = '';
+                document.getElementById('m_time').value = '';
+                document.getElementById('m_doctor').value = '';
+                document.getElementById('m_cabinet').value = '';
+                document.getElementById('m_notes').value = '';
+                alert('Pacient adăugat în lista de programări.');
+            } catch (e) {
+                alert('Eroare la adăugarea pacientului: ' + e.message);
+            }
         }
 
         function formatStatus(status) {

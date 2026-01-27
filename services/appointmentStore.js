@@ -54,6 +54,7 @@ const AppointmentStore = {
             patientName: appointment.patientName || '',
             date: appointment.date,
             time: appointment.time,
+            notes: appointment.notes || '',
             doctorId: appointment.doctorId || null,
             cabinetId: appointment.cabinetId || null,
             raw: appointment.raw || null

@@ -74,6 +74,30 @@ app.get('/api/appointments', requireAuth, (req, res) => {
     }
 });
 
+// API: create manual appointment from dashboard (protected)
+app.post('/api/appointments', requireAuth, (req, res) => {
+    try {
+        const { patientName, patientPhone, date, time, notes, doctorId, cabinetId } = req.body || {};
+        if (!patientName || !patientPhone || !date || !time) {
+            return res.status(400).json({ error: 'Nume, telefon, dată și oră sunt obligatorii.' });
+        }
+        const record = AppointmentStore.add({
+            source: 'manual',
+            status: 'manual_created',
+            patientName,
+            patientPhone,
+            date,
+            time,
+            notes,
+            doctorId,
+            cabinetId
+        });
+        res.status(201).json(record);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // API: Send Template (protected)
 app.post('/api/send', requireAuth, async (req, res) => {
     const { name, phone } = req.body;
