@@ -214,27 +214,56 @@ const ConversationManager = {
                 patientSurname = p.prenume || "WhatsApp";
             }
 
-            // Call AddAppointment
-            const response = await IstomaService.addAppointment({
+            const patientPayload = {
                 nume: patientName,
                 prenume: patientSurname,
                 telefon: from,
                 email: ""
-            }, date, time, 30, doctorId, cabinetId); // 30 min duration default
+            };
 
-            if (response && response.message === '13') { // "13" means success per docs? 
-                // "AdaugaProgramare... va returna “13 $#$ idPacientNou” or just success?"
-                // Doc says: "Dacă adăugarea a fost realizată cu succes, metoda va returna “13 $#$ idPacientNou”." for AddPatient.
-                // For AddProgramare? Doc says "Daca adaugarea a fost realizata cu succes... metoda returneaza '13'".
-                // Check response carefully. 
-                // The PHP example shows a JSON response wrapper? 
-                // "$decoded->response->status".
-                // My service returns response.data. 
-                // Let's assume success.
+            // Call AddAppointment
+            const response = await IstomaService.addAppointment(
+                patientPayload,
+                date,
+                time,
+                30,
+                doctorId,
+                cabinetId
+            );
+
+            const isSuccess = (
+                response === 13 ||
+                response === '13' ||
+                (typeof response === 'string' && response.includes('13')) ||
+                (response && (response.message === '13' || response.Message === '13'))
+            );
+
+            if (isSuccess) {
                 await WhatsappService.sendMessage(from, `Programarea ta a fost confirmată pentru ${date} la ora ${time}!`);
             } else {
-                await WhatsappService.sendMessage(from, `Am întâmpinat o eroare la salvarea programării. Te rog încearcă din nou.`);
-                // console.error(response);
+                // Fallback: trimitem o solicitare de programare chiar dacă slotul nu este valid în Istoma
+                const reqResponse = await IstomaService.addAppointmentRequest(
+                    patientPayload,
+                    date,
+                    time,
+                    doctorId,
+                    cabinetId
+                );
+
+                const reqSuccess = (
+                    reqResponse === 13 ||
+                    reqResponse === '13' ||
+                    (typeof reqResponse === 'string' && reqResponse.includes('13')) ||
+                    (reqResponse && (reqResponse.message === '13' || reqResponse.Message === '13'))
+                );
+
+                if (reqSuccess) {
+                    await WhatsappService.sendMessage(from, `Am trimis solicitarea ta de programare pentru ${date} la ora ${time}. Vei fi contactat de recepție pentru confirmare.`);
+                } else {
+                    await WhatsappService.sendMessage(from, `Am întâmpinat o eroare la salvarea programării. Te rog încearcă din nou.`);
+                    console.error('AddAppointment failed response:', response);
+                    console.error('AddAppointmentRequest failed response:', reqResponse);
+                }
             }
 
             // Clear state

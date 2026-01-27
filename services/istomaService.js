@@ -371,6 +371,30 @@ const IstomaService = {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         });
         return response.data;
+    },
+
+    // Fallback: send a scheduling REQUEST even dacă nu avem slot valid (AdaugaSolicitareProgramareCuData)
+    async addAppointmentRequest(patientData, date, time, doctorId, locationId = 0, category = 'Consultatie') {
+        const dateTime = date.replace(/\./g, '') + time.replace(':', '');
+
+        const params = {
+            pNumeComplet: `${patientData.nume} ${patientData.prenume}`.trim(),
+            pTelefon: patientData.telefon,
+            pAdresaMail: patientData.email || '',
+            pDataDDMMYYYYHHMM: dateTime,
+            pObservatii: 'Solicitare programare din WhatsApp (fara verificare slot)',
+            pIdSursa: 0,
+            pIdCampanie: 0,
+            pIdSediu: locationId || 0,
+            pCategorie: category,
+            pNumeMedic: '' // lăsăm liber; dacă ai nevoie, poți completa numele medicului
+        };
+
+        const response = await apiClient.post('AdaugaSolicitareProgramareCuData', null, { 
+            params: formatParams(params),
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+        return response.data;
     }
 };
 
