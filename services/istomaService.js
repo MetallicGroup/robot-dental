@@ -182,17 +182,36 @@ const IstomaService = {
             console.log(`[DEBUG] Response data value:`, response.data);
             
             // If data is null, try to get raw response
-            if (response.data === null || response.data === undefined) {
+            let responseData = response.data;
+            if (responseData === null || responseData === undefined) {
                 console.log(`[WARN] Response data is null! Checking if response has other properties...`);
                 console.log(`[DEBUG] Response keys:`, Object.keys(response));
+                
                 // Try to access raw response if available
                 if (response.request && response.request.response) {
-                    console.log(`[DEBUG] Raw response text:`, response.request.response.substring(0, 500));
+                    const rawResponse = response.request.response;
+                    console.log(`[DEBUG] Raw response text:`, rawResponse.substring(0, 500));
+                    
+                    // Try to parse raw response as JSON
+                    if (typeof rawResponse === 'string' && rawResponse.trim()) {
+                        try {
+                            responseData = JSON.parse(rawResponse);
+                            console.log(`[DEBUG] Successfully parsed raw response as JSON`);
+                        } catch (e) {
+                            console.log(`[DEBUG] Raw response is not valid JSON:`, e.message);
+                        }
+                    }
+                }
+                
+                // If still null, API might return null for empty results (which is valid)
+                if (responseData === null || responseData === undefined) {
+                    console.log(`[INFO] API returned null - likely no slots available (this is valid)`);
+                    responseData = null; // Will be handled by extractArrayFromResponse
                 }
             } else {
-                console.log(`[DEBUG] Full response.data:`, JSON.stringify(response.data, null, 2).substring(0, 1000));
+                console.log(`[DEBUG] Full response.data:`, JSON.stringify(responseData, null, 2).substring(0, 1000));
             }
-            const slots = extractArrayFromResponse(response.data);
+            const slots = extractArrayFromResponse(responseData);
             console.log(`[DEBUG] Extracted ${slots.length} slots from GetListaIntervaleActivitate`);
             if (slots.length > 0) {
                 console.log(`[DEBUG] First slot sample:`, JSON.stringify(slots[0]).substring(0, 200));
@@ -242,17 +261,36 @@ const IstomaService = {
             console.log(`[DEBUG] Response data value:`, response.data);
             
             // If data is null, try to get raw response
-            if (response.data === null || response.data === undefined) {
+            let responseData = response.data;
+            if (responseData === null || responseData === undefined) {
                 console.log(`[WARN] Response data is null! Checking if response has other properties...`);
                 console.log(`[DEBUG] Response keys:`, Object.keys(response));
+                
                 // Try to access raw response if available
                 if (response.request && response.request.response) {
-                    console.log(`[DEBUG] Raw response text:`, response.request.response.substring(0, 500));
+                    const rawResponse = response.request.response;
+                    console.log(`[DEBUG] Raw response text:`, rawResponse.substring(0, 500));
+                    
+                    // Try to parse raw response as JSON
+                    if (typeof rawResponse === 'string' && rawResponse.trim()) {
+                        try {
+                            responseData = JSON.parse(rawResponse);
+                            console.log(`[DEBUG] Successfully parsed raw response as JSON`);
+                        } catch (e) {
+                            console.log(`[DEBUG] Raw response is not valid JSON:`, e.message);
+                        }
+                    }
+                }
+                
+                // If still null, API might return null for empty results (which is valid)
+                if (responseData === null || responseData === undefined) {
+                    console.log(`[INFO] API returned null - likely no slots available (this is valid)`);
+                    responseData = null; // Will be handled by extractArrayFromResponse
                 }
             } else {
-                console.log(`[DEBUG] Full response.data:`, JSON.stringify(response.data, null, 2).substring(0, 1000));
+                console.log(`[DEBUG] Full response.data:`, JSON.stringify(responseData, null, 2).substring(0, 1000));
             }
-            const slots = extractArrayFromResponse(response.data);
+            const slots = extractArrayFromResponse(responseData);
             console.log(`[DEBUG] Extracted ${slots.length} slots from GetPrimeleSloturiLibere`);
             if (slots.length > 0) {
                 console.log(`[DEBUG] First slot sample:`, JSON.stringify(slots[0]).substring(0, 200));
