@@ -21,12 +21,28 @@ const formatParams = (params) => {
 
 // Helper to extract array from Istoma response (handles various wrapper structures)
 const extractArrayFromResponse = (responseData) => {
-    if (!responseData) {
-        console.log('[DEBUG] Response data is null/undefined');
+    if (responseData === '' || responseData === undefined || responseData === null) {
+        console.log('[DEBUG] Response data is null/empty/undefined');
         console.log('[DEBUG] Response data type:', typeof responseData);
         return [];
     }
-    
+
+    // If we got a string, try to parse JSON; otherwise, treat empty string as no data
+    if (typeof responseData === 'string') {
+        if (!responseData.trim()) {
+            console.log('[DEBUG] Response data is empty string');
+            return [];
+        }
+        try {
+            const parsed = JSON.parse(responseData);
+            responseData = parsed;
+            console.log('[DEBUG] Parsed string response into JSON object');
+        } catch (e) {
+            console.warn('[WARN] Response is string but not valid JSON, returning empty array');
+            return [];
+        }
+    }
+
     // Direct array
     if (Array.isArray(responseData)) {
         console.log(`[DEBUG] Response is direct array with ${responseData.length} items`);
@@ -168,7 +184,11 @@ const IstomaService = {
                 const fullUrl = `${BASE_URL}GetListaIntervaleActivitate?${new URLSearchParams(formatParams(params)).toString()}`;
                 console.log(`[DEBUG] Calling GetListaIntervaleActivitate URL:`, fullUrl.substring(0, 200));
                 
-                response = await apiClient.get('GetListaIntervaleActivitate', { params: formatParams(params) });
+                response = await apiClient.get('GetListaIntervaleActivitate', { 
+                    params: formatParams(params),
+                    responseType: 'text',           // capture raw text; we'll parse manually
+                    transformResponse: x => x
+                });
             } catch (error) {
                 console.error(`[ERROR] GetListaIntervaleActivitate failed for location ${locId}:`, error.message);
                 console.error(`[ERROR] Error response:`, error.response?.data);
@@ -183,6 +203,19 @@ const IstomaService = {
             
             // If data is null, try to get raw response
             let responseData = response.data;
+            // If data is a string, try to parse JSON
+            if (typeof responseData === 'string') {
+                if (!responseData.trim()) {
+                    console.log('[DEBUG] response.data is empty string');
+                } else {
+                    try {
+                        responseData = JSON.parse(responseData);
+                        console.log('[DEBUG] Parsed response.data string to JSON');
+                    } catch (e) {
+                        console.log('[DEBUG] response.data is string but not JSON:', e.message);
+                    }
+                }
+            }
             if (responseData === null || responseData === undefined) {
                 console.log(`[WARN] Response data is null! Checking if response has other properties...`);
                 console.log(`[DEBUG] Response keys:`, Object.keys(response));
@@ -247,7 +280,11 @@ const IstomaService = {
                 const fullUrl = `${BASE_URL}GetPrimeleSloturiLibere?${new URLSearchParams(formatParams(params)).toString()}`;
                 console.log(`[DEBUG] Calling GetPrimeleSloturiLibere URL:`, fullUrl.substring(0, 200));
                 
-                response = await apiClient.get('GetPrimeleSloturiLibere', { params: formatParams(params) });
+                response = await apiClient.get('GetPrimeleSloturiLibere', { 
+                    params: formatParams(params),
+                    responseType: 'text',           // capture raw text; we'll parse manually
+                    transformResponse: x => x
+                });
             } catch (error) {
                 console.error(`[ERROR] GetPrimeleSloturiLibere failed for location ${locId}:`, error.message);
                 console.error(`[ERROR] Error response:`, error.response?.data);
@@ -262,6 +299,19 @@ const IstomaService = {
             
             // If data is null, try to get raw response
             let responseData = response.data;
+            // If data is a string, try to parse JSON
+            if (typeof responseData === 'string') {
+                if (!responseData.trim()) {
+                    console.log('[DEBUG] response.data is empty string');
+                } else {
+                    try {
+                        responseData = JSON.parse(responseData);
+                        console.log('[DEBUG] Parsed response.data string to JSON');
+                    } catch (e) {
+                        console.log('[DEBUG] response.data is string but not JSON:', e.message);
+                    }
+                }
+            }
             if (responseData === null || responseData === undefined) {
                 console.log(`[WARN] Response data is null! Checking if response has other properties...`);
                 console.log(`[DEBUG] Response keys:`, Object.keys(response));
