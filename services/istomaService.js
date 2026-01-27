@@ -7,7 +7,26 @@ const API_KEY = process.env.ISTOMA_KEY;
 
 const apiClient = axios.create({
     baseURL: BASE_URL,
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    // Force response to be treated as JSON, but also allow text
+    responseType: 'json',
+    transformResponse: [(data) => {
+        // If data is empty string, return null (will be handled later)
+        if (data === '' || data === null) {
+            return null;
+        }
+        // If already parsed, return as is
+        if (typeof data === 'object') {
+            return data;
+        }
+        // Try to parse as JSON
+        try {
+            return JSON.parse(data);
+        } catch (e) {
+            console.warn('[WARN] Failed to parse response as JSON:', data.substring(0, 200));
+            return data;
+        }
+    }]
 });
 
 // Helper to format params
@@ -158,6 +177,10 @@ const IstomaService = {
             // BUT for now, let's propagate EVERYTHING so we see the error.
             let response;
             try {
+                // Log the full URL being called
+                const fullUrl = `${BASE_URL}GetListaIntervaleActivitate?${new URLSearchParams(formatParams(params)).toString()}`;
+                console.log(`[DEBUG] Calling GetListaIntervaleActivitate URL:`, fullUrl.substring(0, 200));
+                
                 response = await apiClient.get('GetListaIntervaleActivitate', { params: formatParams(params) });
             } catch (error) {
                 console.error(`[ERROR] GetListaIntervaleActivitate failed for location ${locId}:`, error.message);
@@ -166,11 +189,22 @@ const IstomaService = {
                 continue; // Skip this location and try next
             }
             console.log(`[DEBUG] GetListaIntervaleActivitate called for date ${date}, location ${locId}, doctors: ${doctorIdsStr}`);
-            console.log(`[DEBUG] Full response object keys:`, Object.keys(response || {}));
+            console.log(`[DEBUG] Response headers:`, JSON.stringify(response.headers, null, 2));
             console.log(`[DEBUG] Response status:`, response.status, response.statusText);
             console.log(`[DEBUG] Response data type:`, typeof response.data);
             console.log(`[DEBUG] Response data value:`, response.data);
-            console.log(`[DEBUG] Full response.data:`, JSON.stringify(response.data, null, 2).substring(0, 1000));
+            
+            // If data is null, try to get raw response
+            if (response.data === null || response.data === undefined) {
+                console.log(`[WARN] Response data is null! Checking if response has other properties...`);
+                console.log(`[DEBUG] Response keys:`, Object.keys(response));
+                // Try to access raw response if available
+                if (response.request && response.request.response) {
+                    console.log(`[DEBUG] Raw response text:`, response.request.response.substring(0, 500));
+                }
+            } else {
+                console.log(`[DEBUG] Full response.data:`, JSON.stringify(response.data, null, 2).substring(0, 1000));
+            }
             const slots = extractArrayFromResponse(response.data);
             console.log(`[DEBUG] Extracted ${slots.length} slots from GetListaIntervaleActivitate`);
             if (slots.length > 0) {
@@ -203,6 +237,10 @@ const IstomaService = {
             // Propagate errors
             let response;
             try {
+                // Log the full URL being called
+                const fullUrl = `${BASE_URL}GetPrimeleSloturiLibere?${new URLSearchParams(formatParams(params)).toString()}`;
+                console.log(`[DEBUG] Calling GetPrimeleSloturiLibere URL:`, fullUrl.substring(0, 200));
+                
                 response = await apiClient.get('GetPrimeleSloturiLibere', { params: formatParams(params) });
             } catch (error) {
                 console.error(`[ERROR] GetPrimeleSloturiLibere failed for location ${locId}:`, error.message);
@@ -211,11 +249,22 @@ const IstomaService = {
                 continue; // Skip this location and try next
             }
             console.log(`[DEBUG] GetPrimeleSloturiLibere called for location ${locId}, doctors: ${doctorIdsStr}, count: ${count}`);
-            console.log(`[DEBUG] Full response object keys:`, Object.keys(response || {}));
+            console.log(`[DEBUG] Response headers:`, JSON.stringify(response.headers, null, 2));
             console.log(`[DEBUG] Response status:`, response.status, response.statusText);
             console.log(`[DEBUG] Response data type:`, typeof response.data);
             console.log(`[DEBUG] Response data value:`, response.data);
-            console.log(`[DEBUG] Full response.data:`, JSON.stringify(response.data, null, 2).substring(0, 1000));
+            
+            // If data is null, try to get raw response
+            if (response.data === null || response.data === undefined) {
+                console.log(`[WARN] Response data is null! Checking if response has other properties...`);
+                console.log(`[DEBUG] Response keys:`, Object.keys(response));
+                // Try to access raw response if available
+                if (response.request && response.request.response) {
+                    console.log(`[DEBUG] Raw response text:`, response.request.response.substring(0, 500));
+                }
+            } else {
+                console.log(`[DEBUG] Full response.data:`, JSON.stringify(response.data, null, 2).substring(0, 1000));
+            }
             const slots = extractArrayFromResponse(response.data);
             console.log(`[DEBUG] Extracted ${slots.length} slots from GetPrimeleSloturiLibere`);
             if (slots.length > 0) {
