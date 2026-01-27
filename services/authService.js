@@ -19,7 +19,7 @@ function ensureLoaded() {
 
     // Ensure at least one admin user
     if (users.length === 0) {
-        const defaultUser = process.env.ADMIN_USER || 'admin';
+        const defaultUser = process.env.ADMIN_USER || 'admin@supersmile.ro';
         const defaultPass = process.env.ADMIN_PASS || 'admin123';
         const hash = bcrypt.hashSync(defaultPass, 10);
         users.push({
