@@ -1,20 +1,61 @@
 const express = require('express');
 const bodyParser = require('body-parser');
+const session = require('express-session');
 require('dotenv').config();
 
 const ConversationManager = require('./services/conversationManager');
+const SheetService = require('./services/sheetService');
+const AppointmentStore = require('./services/appointmentStore');
+const WhatsappService = require('./services/whatsappService');
+const AuthService = require('./services/authService');
 
 const app = express();
 app.use(bodyParser.json());
-app.use(express.static('public')); // Serve frontend
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'super-secret-dental-bot',
+    resave: false,
+    saveUninitialized: false
+}));
+app.use(express.static('public')); // Serve frontend (login + dashboard)
 
 const PORT = process.env.PORT || 3000;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
-// API: Get Leads from Sheet
-const SheetService = require('./services/sheetService');
-const AppointmentStore = require('./services/appointmentStore');
-app.get('/api/leads', async (req, res) => {
+// Simple auth middleware for protected APIs
+function requireAuth(req, res, next) {
+    if (req.session && req.session.user) {
+        return next();
+    }
+    return res.status(401).json({ error: 'Neautorizat' });
+}
+
+// Auth routes
+app.post('/login', async (req, res) => {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Utilizator și parolă obligatorii' });
+    }
+    try {
+        const user = await AuthService.validateUser(username, password);
+        if (!user) {
+            return res.status(401).json({ error: 'Utilizator sau parolă incorecte' });
+        }
+        req.session.user = { id: user.id, username: user.username, role: user.role };
+        res.json({ ok: true, user: req.session.user });
+    } catch (e) {
+        console.error('Login error:', e.message);
+        res.status(500).json({ error: 'Eroare la autentificare' });
+    }
+});
+
+app.post('/logout', (req, res) => {
+    req.session.destroy(() => {
+        res.json({ ok: true });
+    });
+});
+
+// API: Get Leads from Sheet (protected)
+app.get('/api/leads', requireAuth, async (req, res) => {
     try {
         const leads = await SheetService.getLeads();
         res.json(leads);
@@ -23,8 +64,8 @@ app.get('/api/leads', async (req, res) => {
     }
 });
 
-// API: Appointments dashboard
-app.get('/api/appointments', (req, res) => {
+// API: Appointments dashboard (protected)
+app.get('/api/appointments', requireAuth, (req, res) => {
     try {
         const items = AppointmentStore.getAll();
         res.json(items);
@@ -33,9 +74,8 @@ app.get('/api/appointments', (req, res) => {
     }
 });
 
-// API: Send Template
-const WhatsappService = require('./services/whatsappService');
-app.post('/api/send', async (req, res) => {
+// API: Send Template (protected)
+app.post('/api/send', requireAuth, async (req, res) => {
     const { name, phone } = req.body;
 
     // Template: "dental"
@@ -71,7 +111,7 @@ app.get('/webhook', (req, res) => {
     }
 });
 
-// Message Handler Endpoint
+// Message Handler Endpoint (public, pentru webhook WhatsApp)
 app.post('/webhook', async (req, res) => {
     const body = req.body;
 
@@ -100,8 +140,12 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
+// Protect main dashboard: dacă nu e logat, redirect la login
 app.get('/', (req, res) => {
-    res.send('WhatsApp Dental Bot is running!');
+    if (!req.session || !req.session.user) {
+        return res.redirect('/login.html');
+    }
+    res.sendFile(require('path').join(__dirname, 'public', 'index.html'));
 });
 
 app.listen(PORT, () => {
