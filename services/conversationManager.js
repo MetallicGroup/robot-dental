@@ -69,57 +69,65 @@ const ConversationManager = {
             currentState.data.date = formattedDate;
             await WhatsappService.sendMessage(from, `Caut intervale libere pentru data de ${formattedDate}...`);
 
-            // Fetch doctors and locations
-            const [doctors, locations] = await Promise.all([
-                IstomaService.getDoctors(),
-                IstomaService.getLocations()
-            ]);
+            try {
+                // Fetch doctors and locations
+                const [doctors, locations] = await Promise.all([
+                    IstomaService.getDoctors(),
+                    IstomaService.getLocations()
+                ]);
 
-            const doctorIds = doctors.map(d => d.id);
-            const locationIds = locations.map(l => l.ID);
+                // Handle both PascalCase and camelCase for IDs
+                const doctorIds = doctors.map(d => d.Id || d.id || d.ID).filter(id => id);
+                const locationIds = locations.map(l => l.ID || l.id || l.Id).filter(id => id);
 
-            // Get slots for specific date
-            let slots = await IstomaService.getAvailableSlots(formattedDate, doctorIds, locationIds);
-            let usingFallback = false;
+                // Get slots for specific date
+                let slots = await IstomaService.getAvailableSlots(formattedDate, doctorIds, locationIds);
+                let usingFallback = false;
 
-            if (!slots || slots.length === 0) {
-                // Fallback: Check for next available slots
-                // "Din păcate nu sunt locuri libere pe (data). Dar uite ce am găsit în curând:"
-                const nextSlots = await IstomaService.getFirstFreeSlots(5, doctorIds, locationIds);
+                if (!slots || slots.length === 0) {
+                    // Fallback: Check for next available slots
+                    const nextSlots = await IstomaService.getFirstFreeSlots(5, doctorIds, locationIds);
 
-                if (nextSlots && nextSlots.length > 0) {
-                    slots = nextSlots;
-                    usingFallback = true;
-                    await WhatsappService.sendMessage(from, `Din păcate nu sunt locuri libere pe ${formattedDate}. Dar am găsit aceste intervale libere în curând:`);
+                    if (nextSlots && nextSlots.length > 0) {
+                        slots = nextSlots;
+                        usingFallback = true;
+                        await WhatsappService.sendMessage(from, `Din păcate nu sunt locuri libere pe ${formattedDate}. Dar am găsit aceste intervale libere în curând:`);
+                    } else {
+                        await WhatsappService.sendMessage(from, `Din păcate nu sunt locuri libere pe ${formattedDate} și nici în zilele următoare. Te rog alege altă zi.`);
+                        return;
+                    }
                 } else {
-                    await WhatsappService.sendMessage(from, `Din păcate nu sunt locuri libere pe ${formattedDate} și nici în zilele următoare. Te rog alege altă zi.`);
+                    await WhatsappService.sendMessage(from, `Am găsit intervale libere pe ${formattedDate}:`);
+                }
+
+                const availableOptions = this.processSlotsToOptions(slots);
+
+                if (availableOptions.length === 0) {
+                    await WhatsappService.sendMessage(from, `Nu am găsit intervale valide (eroare procesare).`);
                     return;
                 }
-            } else {
-                await WhatsappService.sendMessage(from, `Am găsit intervale libere pe ${formattedDate}:`);
+
+                currentState.state = STATES.WAITING_FOR_SLOT;
+                // Send LIST message
+                const sections = [{
+                    title: 'Ore Disponibile',
+                    rows: availableOptions.slice(0, 10).map(opt => ({
+                        id: `${opt.fullDate || currentState.data.date}|${opt.time}|${opt.doctorId}|${opt.cabinetId}`,
+                        title: opt.displayTitle || opt.time,
+                        description: opt.uName
+                    }))
+                }];
+
+                await WhatsappService.sendList(from, `Intervale disponibile pt ${formattedDate}:`, "Alege o oră", sections);
+                userState.set(from, currentState);
+
+            } catch (err) {
+                console.error('Error in flow:', err.message);
+                // Send explicit error to user
+                await WhatsappService.sendMessage(from, `Eroare sistem: ${err.message}. Te rog contactează adminul.`);
+                // Reset to idle so they can try again later
+                userState.set(from, { state: STATES.IDLE, data: {} });
             }
-
-            const availableOptions = this.processSlotsToOptions(slots);
-
-            if (availableOptions.length === 0) {
-                await WhatsappService.sendMessage(from, `Nu am găsit intervale valide (eroare procesare).`);
-                return;
-            }
-
-            currentState.state = STATES.WAITING_FOR_SLOT;
-            // Send LIST message
-            // WhatsApp List limit is 10 items.
-            const sections = [{
-                title: 'Ore Disponibile',
-                rows: availableOptions.slice(0, 10).map(opt => ({
-                    id: `${opt.fullDate || currentState.data.date}|${opt.time}|${opt.doctorId}|${opt.cabinetId}`, // Encode DATE so fallback works
-                    title: opt.displayTitle || opt.time,
-                    description: opt.uName // Doctor name or similar
-                }))
-            }];
-
-            await WhatsappService.sendList(from, `Intervale disponibile pt ${formattedDate}:`, "Alege o oră", sections);
-            userState.set(from, currentState);
 
         } else if (currentState.state === STATES.WAITING_FOR_SLOT) {
             // text is the ID from list selection: "DATE|HH:MM|docId|cabId"
