@@ -76,9 +76,26 @@ const ConversationManager = {
                     IstomaService.getLocations()
                 ]);
 
+                console.log(`[DEBUG] Fetched ${doctors.length} doctors, ${locations.length} locations`);
+                if (doctors.length > 0) {
+                    console.log(`[DEBUG] Sample doctor:`, JSON.stringify(doctors[0]).substring(0, 200));
+                }
+                if (locations.length > 0) {
+                    console.log(`[DEBUG] Sample location:`, JSON.stringify(locations[0]).substring(0, 200));
+                }
+
                 // Handle both PascalCase and camelCase for IDs
-                const doctorIds = doctors.map(d => d.Id || d.id || d.ID).filter(id => id);
-                const locationIds = locations.map(l => l.ID || l.id || l.Id).filter(id => id);
+                const doctorIds = doctors.map(d => d.Id || d.id || d.ID).filter(id => id && id !== 0);
+                const locationIds = locations.map(l => l.ID || l.id || l.Id).filter(id => id && id !== 0);
+
+                console.log(`[DEBUG] Extracted doctor IDs:`, doctorIds);
+                console.log(`[DEBUG] Extracted location IDs:`, locationIds);
+
+                if (doctorIds.length === 0) {
+                    console.error('[ERROR] No valid doctor IDs found!');
+                    await WhatsappService.sendMessage(from, `Eroare: Nu am putut găsi medici disponibili. Te rog contactează adminul.`);
+                    return;
+                }
 
                 // Get slots for specific date
                 let slots = await IstomaService.getAvailableSlots(formattedDate, doctorIds, locationIds);
@@ -245,12 +262,32 @@ const ConversationManager = {
         const options = [];
         const seen = new Set();
 
-        if (!Array.isArray(slots)) return [];
+        if (!Array.isArray(slots)) {
+            console.log('[DEBUG] processSlotsToOptions: slots is not an array:', typeof slots);
+            return [];
+        }
+
+        console.log(`[DEBUG] processSlotsToOptions: processing ${slots.length} slots`);
+        if (slots.length > 0) {
+            console.log(`[DEBUG] First slot structure:`, JSON.stringify(slots[0], null, 2));
+        }
 
         for (const slot of slots) {
-            // Extract Time
-            let startStr = slot.dataInceputInterval || slot.DataInceputInterval || slot.StartDate;
-            if (!startStr) continue;
+            // Extract Time - try multiple field name variations
+            let startStr = slot.dataInceputInterval || 
+                          slot.DataInceputInterval || 
+                          slot.data_inceput_interval ||
+                          slot.StartDate ||
+                          slot.startDate ||
+                          slot.dataInceput ||
+                          slot.DataInceput ||
+                          slot.dataInceputInterval ||
+                          slot['data inceput interval'];
+            
+            if (!startStr) {
+                console.log('[DEBUG] Slot missing start time field. Slot keys:', Object.keys(slot));
+                continue;
+            }
 
             // Parse time HH:mm
             // If format is "28.01.2026 14:00", split.
@@ -261,9 +298,10 @@ const ConversationManager = {
                 time = startStr.split('T')[1].substring(0, 5);
             }
 
-            const docId = slot.idMedic || slot.IdMedic || 0;
-            const cabId = slot.idCabinet || slot.IdCabinet || 0;
-            const locId = slot.idLocatie || slot.IdLocatie || 0;
+            // Extract IDs - try multiple field name variations
+            const docId = slot.idMedic || slot.IdMedic || slot.id_medic || slot.IDMedic || 0;
+            const cabId = slot.idCabinet || slot.IdCabinet || slot.id_cabinet || slot.IDCabinet || 0;
+            const locId = slot.idLocatie || slot.IdLocatie || slot.id_locatie || slot.IDLocatie || slot.idSediu || slot.IdSediu || 0;
 
             // If multiple doctors free at 14:00, show 14:00 once? Or "14:00 (Dr X)", "14:00 (Dr Y)"?
             // User: "sa primeasca mesaj cu ora cu orele valabile care nu sunt acoperite"

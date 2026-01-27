@@ -17,32 +17,56 @@ const formatParams = (params) => {
 
 // Helper to extract array from Istoma response (handles various wrapper structures)
 const extractArrayFromResponse = (responseData) => {
-    if (!responseData) return [];
+    if (!responseData) {
+        console.log('[DEBUG] Response data is null/undefined');
+        return [];
+    }
     
     // Direct array
     if (Array.isArray(responseData)) {
+        console.log(`[DEBUG] Response is direct array with ${responseData.length} items`);
         return responseData;
+    }
+    
+    // Check if it's an error response (from PHP example: decoded->response->status == 'ERROR')
+    if (responseData.response) {
+        if (responseData.response.status === 'ERROR') {
+            console.error('[ERROR] Istoma API error:', responseData.response.errormessage);
+            return [];
+        }
+        // If response exists but is not error, check if it contains data
+        if (Array.isArray(responseData.response)) {
+            console.log(`[DEBUG] Found array in response.response with ${responseData.response.length} items`);
+            return responseData.response;
+        }
+        if (responseData.response.data && Array.isArray(responseData.response.data)) {
+            console.log(`[DEBUG] Found array in response.response.data with ${responseData.response.data.length} items`);
+            return responseData.response.data;
+        }
+        if (responseData.response.lista && Array.isArray(responseData.response.lista)) {
+            console.log(`[DEBUG] Found array in response.response.lista with ${responseData.response.lista.length} items`);
+            return responseData.response.lista;
+        }
     }
     
     // Wrapped in common properties
     if (responseData.lista && Array.isArray(responseData.lista)) {
+        console.log(`[DEBUG] Found array in lista with ${responseData.lista.length} items`);
         return responseData.lista;
     }
     
-    if (responseData.response && Array.isArray(responseData.response)) {
-        return responseData.response;
-    }
-    
     if (responseData.data && Array.isArray(responseData.data)) {
+        console.log(`[DEBUG] Found array in data with ${responseData.data.length} items`);
         return responseData.data;
     }
     
     if (responseData.result && Array.isArray(responseData.result)) {
+        console.log(`[DEBUG] Found array in result with ${responseData.result.length} items`);
         return responseData.result;
     }
     
-    // Log for debugging if we can't find the array
-    console.warn('Could not extract array from Istoma response:', JSON.stringify(responseData).substring(0, 200));
+    // Log full structure for debugging
+    console.warn('[WARN] Could not extract array from Istoma response. Full structure:', JSON.stringify(responseData, null, 2).substring(0, 1000));
     return [];
 };
 
@@ -106,10 +130,14 @@ const IstomaService = {
     },
 
     async getAvailableSlots(date, doctorIds = [], locationIds = []) {
-        const doctorIdsStr = doctorIds.join(',');
+        // If no doctors specified, pass empty string (API will return all doctors per docs)
+        const doctorIdsStr = doctorIds.length > 0 ? doctorIds.join(',') : '';
         const formattedDate = date.replace(/\./g, '');
 
+        console.log(`[DEBUG] getAvailableSlots: date=${date}, formattedDate=${formattedDate}, doctorIds=${doctorIds.length}, locationIds=${locationIds.length}`);
+
         let allSlots = [];
+        // If no locations specified, use 0 (all locations per docs)
         const locationsToCheck = locationIds.length > 0 ? locationIds : [0];
 
         for (const locId of locationsToCheck) {
@@ -118,7 +146,7 @@ const IstomaService = {
                 pDataSfarsitZZLLAAAA: formattedDate,
                 pOraInceput: '08:00',
                 pOraFinal: '20:00',
-                pListaIdMedici: doctorIdsStr,
+                pListaIdMedici: doctorIdsStr || '', // Empty string means all doctors
                 pIdSediu: locId
             };
 
@@ -128,13 +156,12 @@ const IstomaService = {
             // Let's keep the inner try/catch ONLY for location-specific non-critical errors if possible,
             // BUT for now, let's propagate EVERYTHING so we see the error.
             const response = await apiClient.get('GetListaIntervaleActivitate', { params: formatParams(params) });
-            // Debug: log response structure if no slots found
-            if (!response.data || (!Array.isArray(response.data) && !response.data.lista)) {
-                console.log(`[DEBUG GetListaIntervaleActivitate] Response structure for date ${date}, location ${locId}:`, 
-                    JSON.stringify(response.data).substring(0, 500));
-            }
+            console.log(`[DEBUG] GetListaIntervaleActivitate called for date ${date}, location ${locId}, doctors: ${doctorIdsStr}`);
+            console.log(`[DEBUG] Raw response type:`, typeof response.data, 'Is array?', Array.isArray(response.data));
             const slots = extractArrayFromResponse(response.data);
+            console.log(`[DEBUG] Extracted ${slots.length} slots from GetListaIntervaleActivitate`);
             if (slots.length > 0) {
+                console.log(`[DEBUG] First slot sample:`, JSON.stringify(slots[0]).substring(0, 200));
                 allSlots = allSlots.concat(slots);
             }
         }
@@ -142,29 +169,32 @@ const IstomaService = {
     },
 
     async getFirstFreeSlots(count = 5, doctorIds = [], locationIds = []) {
-        const doctorIdsStr = doctorIds.join(',');
+        // If no doctors specified, pass empty string (API will return all doctors per docs)
+        const doctorIdsStr = doctorIds.length > 0 ? doctorIds.join(',') : '';
         let allSlots = [];
+        // If no locations specified, use 0 (all locations per docs)
         const locationsToCheck = locationIds.length > 0 ? locationIds : [0];
+
+        console.log(`[DEBUG] getFirstFreeSlots: count=${count}, doctorIds=${doctorIds.length}, locationIds=${locationIds.length}`);
 
         for (const locId of locationsToCheck) {
             const params = {
                 pNrSloturiReturnate: count,
                 pOraInceput: '08:00',
                 pOraFinal: '20:00',
-                pListaIdMedici: doctorIdsStr,
+                pListaIdMedici: doctorIdsStr || '', // Empty string means all doctors
                 pIdSediu: locId,
-                pIdCategorie: 0
+                pIdCategorie: '0' // Per docs, should be string
             };
 
             // Propagate errors
             const response = await apiClient.get('GetPrimeleSloturiLibere', { params: formatParams(params) });
-            // Debug: log response structure if no slots found
-            if (!response.data || (!Array.isArray(response.data) && !response.data.lista)) {
-                console.log(`[DEBUG GetPrimeleSloturiLibere] Response structure for location ${locId}:`, 
-                    JSON.stringify(response.data).substring(0, 500));
-            }
+            console.log(`[DEBUG] GetPrimeleSloturiLibere called for location ${locId}, doctors: ${doctorIdsStr}, count: ${count}`);
+            console.log(`[DEBUG] Raw response type:`, typeof response.data, 'Is array?', Array.isArray(response.data));
             const slots = extractArrayFromResponse(response.data);
+            console.log(`[DEBUG] Extracted ${slots.length} slots from GetPrimeleSloturiLibere`);
             if (slots.length > 0) {
+                console.log(`[DEBUG] First slot sample:`, JSON.stringify(slots[0]).substring(0, 200));
                 allSlots = allSlots.concat(slots);
             }
         }
