@@ -248,8 +248,12 @@
             
             try {
                 const res = await fetch('/api/leads');
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    throw new Error(data.error || `HTTP ${res.status}`);
+                }
                 const data = await res.json();
-                leadsData = data;
+                leadsData = Array.isArray(data) ? data : [];
                 
                 renderTable();
                 const countEl = document.getElementById('count');
@@ -265,6 +269,10 @@
         function renderTable() {
             const tbody = document.getElementById('leadsBody');
             if (!tbody) return;
+            if (!Array.isArray(leadsData) || leadsData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4">Nu există lead-uri disponibile.</td></tr>';
+                return;
+            }
             tbody.innerHTML = leadsData.map((lead, index) => `
                 <tr id="row-${index}">
                     <td>${lead.id || ''}</td>
