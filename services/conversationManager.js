@@ -162,7 +162,7 @@ const ConversationManager = {
                 const sections = [{
                     title: 'Ore Disponibile',
                     rows: availableOptions.slice(0, 10).map(opt => ({
-                        id: `${opt.fullDate || currentState.data.date}|${opt.time}|${opt.doctorId}|${opt.cabinetId}`,
+                        id: `${opt.fullDate || currentState.data.date}|${opt.time}|${opt.doctorId}|${opt.cabinetId}|${opt.locationId || 0}`,
                         title: opt.displayTitle || opt.time,
                         description: opt.uName
                     }))
@@ -180,14 +180,14 @@ const ConversationManager = {
             }
 
         } else if (currentState.state === STATES.WAITING_FOR_SLOT) {
-            // text is the ID from list selection: "DATE|HH:MM|docId|cabId"
+            // text is the ID from list selection: "DATE|HH:MM|docId|cabId|locId"
             const parts = text.split('|');
             if (parts.length < 4) {
                 await WhatsappService.sendMessage(from, "Se pare că a fost o eroare. Te rog alege din listă.");
                 return;
             }
 
-            const [dateBooking, time, doctorId, cabinetId] = parts;
+            const [dateBooking, time, doctorId, cabinetId, locationId] = parts;
             // dateBooking is "DD.MM.YYYY"
             const date = dateBooking;
 
@@ -288,9 +288,8 @@ const ConversationManager = {
                 await WhatsappService.sendMessage(from, `Programarea ta a fost confirmată pentru ${date} la ora ${time}!`);
             } else {
                 // Use AdaugaSolicitareProgramareCuData (either as fallback or primary if AdaugaProgramare doesn't exist)
-                // Note: cabinetId este IdCabinet, dar pentru AdaugaSolicitareProgramareCuData avem nevoie de pIdSediu
-                // Get locationId from slot or use default
-                const locationIdForRequest = cabinetId || 0;
+                // Note: pentru AdaugaSolicitareProgramareCuData avem nevoie de pIdSediu (IdLocatie), nu IdCabinet
+                const locationIdForRequest = locationId || 0;
                 const reqResponse = await IstomaService.addAppointmentRequest(
                     patientPayload,
                     date,
@@ -461,6 +460,7 @@ const ConversationManager = {
                     displayTitle: `${shortDate} ${time}`,
                     doctorId: docId,
                     cabinetId: cabId,
+                    locationId: locId, // IdLocatie for AdaugaSolicitareProgramareCuData
                     uName: "Disponibil" // Could fetch doctor name if we cache doctors list
                 });
             }
