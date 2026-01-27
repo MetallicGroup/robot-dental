@@ -241,35 +241,45 @@ const ConversationManager = {
                 cabinetId
             });
 
-            // Call AddAppointment
-            const response = await IstomaService.addAppointment(
-                patientPayload,
-                date,
-                time,
-                30,
-                doctorId,
-                cabinetId
-            );
-
-            // Per docs: AdaugaProgramare returns "13" on success
-            // Response can be: "13", 13, XML, or wrapped in object
+            // Try AdaugaProgramare first, but if it fails (404), use AdaugaSolicitareProgramareCuData
+            let response = null;
             let isSuccess = false;
-            if (typeof response === 'string') {
-                // Check for XML response containing "13" or plain text "13"
-                const responseText = response.trim();
-                isSuccess = responseText === '13' || 
-                           responseText.startsWith('13 ') || 
-                           responseText.includes('<string>13</string>') ||
-                           responseText.includes('>13<');
-            } else if (typeof response === 'number') {
-                isSuccess = response === 13;
-            } else if (response && typeof response === 'object') {
-                // Check if wrapped in response object or XML structure
-                const respStr = String(response.response || response.message || response.Message || response.string || response);
-                isSuccess = respStr.includes('13');
+            let useRequest = false;
+            
+            try {
+                response = await IstomaService.addAppointment(
+                    patientPayload,
+                    date,
+                    time,
+                    30,
+                    doctorId,
+                    cabinetId
+                );
+
+                // Per docs: AdaugaProgramare returns "13" on success
+                // Response can be: "13", 13, XML, or wrapped in object
+                if (typeof response === 'string') {
+                    // Check for XML response containing "13" or plain text "13"
+                    const responseText = response.trim();
+                    isSuccess = responseText === '13' || 
+                               responseText.startsWith('13 ') || 
+                               responseText.includes('<string>13</string>') ||
+                               responseText.includes('>13<');
+                } else if (typeof response === 'number') {
+                    isSuccess = response === 13;
+                } else if (response && typeof response === 'object') {
+                    // Check if wrapped in response object or XML structure
+                    const respStr = String(response.response || response.message || response.Message || response.string || response);
+                    isSuccess = respStr.includes('13');
+                }
+            } catch (error) {
+                // If AdaugaProgramare returns 404 or other error, use AdaugaSolicitareProgramareCuData
+                console.warn('[WARN] AdaugaProgramare failed (404 or error), using AdaugaSolicitareProgramareCuData:', error.message);
+                response = null; // Will trigger fallback below
+                isSuccess = false;
             }
 
-            if (isSuccess) {
+            if (isSuccess && response) {
                 AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'confirmed', {
                     doctorId,
                     cabinetId,
@@ -277,9 +287,9 @@ const ConversationManager = {
                 });
                 await WhatsappService.sendMessage(from, `Programarea ta a fost confirmată pentru ${date} la ora ${time}!`);
             } else {
-                // Fallback: trimitem o solicitare de programare chiar dacă slotul nu este valid în Istoma
+                // Use AdaugaSolicitareProgramareCuData (either as fallback or primary if AdaugaProgramare doesn't exist)
                 // Note: cabinetId este IdCabinet, dar pentru AdaugaSolicitareProgramareCuData avem nevoie de pIdSediu
-                // Pentru moment folosim cabinetId ca locationId (sau 0 dacă nu e setat)
+                // Get locationId from slot or use default
                 const locationIdForRequest = cabinetId || 0;
                 const reqResponse = await IstomaService.addAppointmentRequest(
                     patientPayload,
