@@ -19,6 +19,7 @@ const formatParams = (params) => {
 const extractArrayFromResponse = (responseData) => {
     if (!responseData) {
         console.log('[DEBUG] Response data is null/undefined');
+        console.log('[DEBUG] Response data type:', typeof responseData);
         return [];
     }
     
@@ -155,9 +156,21 @@ const IstomaService = {
             // But if AUTH fails, all fail.
             // Let's keep the inner try/catch ONLY for location-specific non-critical errors if possible,
             // BUT for now, let's propagate EVERYTHING so we see the error.
-            const response = await apiClient.get('GetListaIntervaleActivitate', { params: formatParams(params) });
+            let response;
+            try {
+                response = await apiClient.get('GetListaIntervaleActivitate', { params: formatParams(params) });
+            } catch (error) {
+                console.error(`[ERROR] GetListaIntervaleActivitate failed for location ${locId}:`, error.message);
+                console.error(`[ERROR] Error response:`, error.response?.data);
+                console.error(`[ERROR] Error status:`, error.response?.status);
+                continue; // Skip this location and try next
+            }
             console.log(`[DEBUG] GetListaIntervaleActivitate called for date ${date}, location ${locId}, doctors: ${doctorIdsStr}`);
-            console.log(`[DEBUG] Raw response type:`, typeof response.data, 'Is array?', Array.isArray(response.data));
+            console.log(`[DEBUG] Full response object keys:`, Object.keys(response || {}));
+            console.log(`[DEBUG] Response status:`, response.status, response.statusText);
+            console.log(`[DEBUG] Response data type:`, typeof response.data);
+            console.log(`[DEBUG] Response data value:`, response.data);
+            console.log(`[DEBUG] Full response.data:`, JSON.stringify(response.data, null, 2).substring(0, 1000));
             const slots = extractArrayFromResponse(response.data);
             console.log(`[DEBUG] Extracted ${slots.length} slots from GetListaIntervaleActivitate`);
             if (slots.length > 0) {
@@ -188,9 +201,21 @@ const IstomaService = {
             };
 
             // Propagate errors
-            const response = await apiClient.get('GetPrimeleSloturiLibere', { params: formatParams(params) });
+            let response;
+            try {
+                response = await apiClient.get('GetPrimeleSloturiLibere', { params: formatParams(params) });
+            } catch (error) {
+                console.error(`[ERROR] GetPrimeleSloturiLibere failed for location ${locId}:`, error.message);
+                console.error(`[ERROR] Error response:`, error.response?.data);
+                console.error(`[ERROR] Error status:`, error.response?.status);
+                continue; // Skip this location and try next
+            }
             console.log(`[DEBUG] GetPrimeleSloturiLibere called for location ${locId}, doctors: ${doctorIdsStr}, count: ${count}`);
-            console.log(`[DEBUG] Raw response type:`, typeof response.data, 'Is array?', Array.isArray(response.data));
+            console.log(`[DEBUG] Full response object keys:`, Object.keys(response || {}));
+            console.log(`[DEBUG] Response status:`, response.status, response.statusText);
+            console.log(`[DEBUG] Response data type:`, typeof response.data);
+            console.log(`[DEBUG] Response data value:`, response.data);
+            console.log(`[DEBUG] Full response.data:`, JSON.stringify(response.data, null, 2).substring(0, 1000));
             const slots = extractArrayFromResponse(response.data);
             console.log(`[DEBUG] Extracted ${slots.length} slots from GetPrimeleSloturiLibere`);
             if (slots.length > 0) {
