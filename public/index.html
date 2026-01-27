@@ -208,6 +208,7 @@
                         <table id="leadsTable">
                             <thead>
                                 <tr>
+                                    <th>ID</th>
                                     <th>Name</th>
                                     <th>Phone</th>
                                     <th>Status</th>
@@ -266,6 +267,7 @@
             if (!tbody) return;
             tbody.innerHTML = leadsData.map((lead, index) => `
                 <tr id="row-${index}">
+                    <td>${lead.id || ''}</td>
                     <td>${lead.name}</td>
                     <td>${lead.phone}</td>
                     <td class="status">${lead.status || 'Pending'}</td>

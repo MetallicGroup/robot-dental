@@ -34,8 +34,20 @@ const SheetService = {
             const parts = line.split(',');
             if (parts.length < 2) continue;
 
-            const name = parts[0].trim();
-            let rawPhone = parts[1].trim();
+            let id = null;
+            let name;
+            let rawPhone;
+
+            if (parts.length >= 3) {
+                // Interpret first col as ID, second as name, third as phone
+                id = parts[0].trim();
+                name = parts[1].trim();
+                rawPhone = parts[2].trim();
+            } else {
+                // Backwards compatible: name, phone
+                name = parts[0].trim();
+                rawPhone = parts[1].trim();
+            }
 
             // Normalize Phone
             // "indiferent de cum apare in sheet sa fie transmis in istoma corect"
@@ -44,7 +56,7 @@ const SheetService = {
             const cleanPhone = this.normalizePhone(rawPhone);
 
             if (cleanPhone && name) {
-                leads.push({ name, phone: cleanPhone, originalPhone: rawPhone });
+                leads.push({ id, name, phone: cleanPhone, originalPhone: rawPhone });
             }
         }
         return leads;

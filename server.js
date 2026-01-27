@@ -8,6 +8,7 @@ const SheetService = require('./services/sheetService');
 const AppointmentStore = require('./services/appointmentStore');
 const WhatsappService = require('./services/whatsappService');
 const AuthService = require('./services/authService');
+const IstomaService = require('./services/istomaService');
 
 const app = express();
 app.use(bodyParser.json());
@@ -113,7 +114,26 @@ app.post('/api/send', requireAuth, async (req, res) => {
         }
     ];
 
+    // 1) Trimitem mesajul WhatsApp
     const success = await WhatsappService.sendTemplate(phone, 'dental', 'ro', components);
+
+    // 2) În paralel, încercăm să înregistrăm pacientul în Istoma (PacientAPI AdaugaPacient)
+    if (phone && name) {
+        try {
+            const parts = name.split(' ');
+            const nume = parts[0] || '';
+            const prenume = parts.slice(1).join(' ') || '';
+            await IstomaService.addPatient({
+                nume,
+                prenume,
+                telefon: phone,
+                email: ''
+            });
+        } catch (e) {
+            console.error('Error adding patient to Istoma from Sheet lead:', e.message);
+        }
+    }
+
     res.json({ success });
 });
 
