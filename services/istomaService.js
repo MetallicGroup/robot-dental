@@ -136,15 +136,23 @@ const extractArrayFromResponse = (responseData) => {
 const IstomaService = {
     async getDoctors() {
         const response = await apiClient.get('GetMedici', { params: formatParams({}) });
-        // Response is XML: <ArrayOfMedicAPIModel>...</ArrayOfMedicAPIModel>
+        // Response is XML: <ArrayOfMedicAPIModel><MedicAPIModel>...</MedicAPIModel></ArrayOfMedicAPIModel>
         const parsed = parseResponse(response.data);
         if (!parsed) return [];
         
-        // XML structure: ArrayOfMedicAPIModel.MedicAPIModel or ArrayOfMedicAPIModel['MedicAPIModel']
-        const arrayKey = Object.keys(parsed).find(k => k.toLowerCase().includes('medic') || k.toLowerCase().includes('array'));
-        if (!arrayKey) return [];
+        // XML structure: ArrayOfMedicAPIModel.MedicAPIModel
+        // Try exact key first, then search
+        let data = null;
+        if (parsed.ArrayOfMedicAPIModel) {
+            data = parsed.ArrayOfMedicAPIModel.MedicAPIModel || parsed.ArrayOfMedicAPIModel;
+        } else {
+            const arrayKey = Object.keys(parsed).find(k => k.toLowerCase().includes('medic') || k.toLowerCase().includes('array'));
+            if (arrayKey) {
+                const container = parsed[arrayKey];
+                data = container.MedicAPIModel || container;
+            }
+        }
         
-        const data = parsed[arrayKey];
         if (!data) return [];
         
         // If it's an array, return it; if single object, wrap in array

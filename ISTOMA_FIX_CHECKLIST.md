@@ -69,12 +69,19 @@ https://supersmilesib.digitalclinic.ro/api/PacientAPI/GetListaIntervaleActivitat
 
 ### 4. **Test direct AdaugaProgramare** (chiar dacă GetListaIntervaleActivitate returnează null)
 
-Poți testa direct programarea pentru a vedea dacă medicii au program definit:
+**IMPORTANT**: Nu poți testa AdaugaProgramare în browser! Trebuie să folosești `curl` sau un tool ca Postman.
 
+**Opțiunea 1: Folosește scriptul de test** (cel mai simplu):
+```bash
+cd /Users/danudda/.gemini/antigravity/scratch/robot-dental
+./test_adauga_programare.sh
+```
+
+**Opțiunea 2: Folosește curl direct**:
 ```bash
 curl -X POST https://supersmilesib.digitalclinic.ro/api/PacientAPI/AdaugaProgramare \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "pCheie=CHEIA_TA" \
+  -d "pCheie=sVhuDqQw9AMRH33feWFBsNDxxe5jr3UDjqvm7lr4NEdje6n4cEYaZvBl9tko87N3R0Gep78JGDuy5" \
   -d "pNumeCompletPacient=Test Nume" \
   -d "pTelefonPacient=40712345678" \
   -d "pAdresaMailPacient=" \
@@ -92,6 +99,9 @@ curl -X POST https://supersmilesib.digitalclinic.ro/api/PacientAPI/AdaugaProgram
 - Medicul (ID=2 = PAVEL) nu are program definit pentru 28.01.2026 la ora 10:30
 - Sau cabinetul (ID=1) nu este asociat medicului
 - Sau medicul nu lucrează în intervalul 08:00-21:00 în ziua respectivă
+
+**Dacă primești 404**:
+- Ai copiat comanda în browser - nu funcționează! Folosește curl sau scriptul.
 
 ## ⚠️ Notă importantă
 
