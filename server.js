@@ -213,18 +213,20 @@ app.post('/api/autocall/book', async (req, res) => {
         const rawBody = req.body || {};
         const rawQuery = req.query || {};
 
-        // Încearcă să găsești câmpurile în mai multe locuri posibile (body direct, query, nested objects)
+        // Încearcă să găsești câmpurile în mai multe locuri posibile (body direct, query, sau sub-chei)
         const vars =
             rawBody.post_call ||
             rawBody.variables ||
             rawBody.data ||
+            rawBody.extracted_variables || // Autocalls folosește "extracted_variables"
             rawBody;
 
         const phone =
             rawBody.phone ||
             rawQuery.phone ||
-            rawBody.lead?.phone ||
             rawBody.customer_phone ||
+            rawBody.lead?.phone_number ||
+            rawBody.lead?.phone ||
             vars?.phone ||
             vars?.customer_phone;
 
@@ -238,6 +240,7 @@ app.post('/api/autocall/book', async (req, res) => {
         const date =
             rawBody.date ||
             rawQuery.date ||
+            rawBody.extracted_variables?.booking_date ||
             vars?.booking_date ||
             vars?.date ||
             rawBody.booking_date;
@@ -245,6 +248,7 @@ app.post('/api/autocall/book', async (req, res) => {
         const time =
             rawBody.time ||
             rawQuery.time ||
+            rawBody.extracted_variables?.booking_time ||
             vars?.booking_time ||
             vars?.time ||
             rawBody.booking_time;
