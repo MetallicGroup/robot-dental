@@ -195,6 +195,11 @@ app.post('/webhook', async (req, res) => {
 //   doctorId: 3,               // optional; dacă lipsește, putem pune un fallback
 //   locationId: 5              // optional; dacă lipsește, folosim fallback sau 0
 // }
+// GET simplu pentru test ("Make test request" din Autocalls) – doar verifică că endpointul există
+app.get('/api/autocall/book', (req, res) => {
+    res.json({ ok: true, message: 'Autocall webhook endpoint is reachable. Use POST with JSON body for real bookings.' });
+});
+
 app.post('/api/autocall/book', async (req, res) => {
     try {
         const { phone, name, date, time, doctorId, locationId } = req.body || {};
