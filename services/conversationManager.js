@@ -190,151 +190,160 @@ const ConversationManager = {
             const [dateBooking, time, doctorId, cabinetId, locationId] = parts;
             // dateBooking is "DD.MM.YYYY"
             const date = dateBooking;
+            // Conform precizării de la iStoma:
+            // - Pentru AdaugaProgramare, parametrul pIdCabinet trebuie să primească valoarea de la IdLocatie (nu IdCabinet).
+            //   Deci când apelăm AdaugaProgramare, vom trimite locationId ca pIdCabinet.
+            const cabinetForIstoma = locationId || cabinetId;
 
-            // Start booking
-            // Need patient details. 
-            // "AdaugaProgramare" needs: Nume, Prenume, Telefon.
-            // I only have Phone (from). I don't have Name.
-            // I should ask for name? Or check if patient exists first.
-            // Plan:
-            // 1. Check patient by phone (`VerificaPacient`).
-            // 2. If exists, use that ID/Name.
-            // 3. If not, ask for Name? Or just use "WhatsApp User"? 
-            // The prompt says: "Programează-mă" -> "intra ziua" -> "slots" -> "confirm".
-            // It doesn't mention asking name. I will imply checking existing user.
-            // If new user, I need to create one. I will use a placeholder name or ask?
-            // "Dupa ce este identificat pacientul pe baza datelor de contact (este creat daca nu exista)" - in AdaugaProgramare doc description!
-            // So `AdaugaProgramare` might handle creation if I pass Name/Phone.
-            // But I strictly need Name. I'll define a default logic: "WhatsApp Guest" if unknown?
-            // Actually, best UX is to ask name if not found.
-            // BUT, for this specific request "exact cum cere el", he didn't ask to ask name.
-            // I will try to fetch patient first. If exists, good. If not, I will use "Client WhatsApp".
-
-            let patient = await IstomaService.checkPatient(from); // from is phone number usually
-            let patientName = "Client";
-            let patientSurname = "WhatsApp";
-
-            if (patient && patient.lista && patient.lista.length > 0) {
-                // Found
-                // The API "VerificaPacient" returns "lista de pacienți".
-                const p = patient.lista[0];
-                patientName = p.nume || "Client";
-                patientSurname = p.prenume || "WhatsApp";
-            }
-
-            const patientPayload = {
-                nume: patientName,
-                prenume: patientSurname,
-                telefon: from,
-                email: ""
-            };
-
-            // Log pending appointment in our local store (for dashboard)
-            AppointmentStore.add({
-                source: 'whatsapp',
-                status: 'pending',
-                patientPhone: from,
-                patientName: `${patientName} ${patientSurname}`.trim(),
-                date,
-                time,
-                doctorId,
-                cabinetId
-            });
-
-            // Try AdaugaProgramare first, but if it fails (404), use AdaugaSolicitareProgramareCuData
-            let response = null;
-            let isSuccess = false;
-            let useRequest = false;
-            
             try {
-                response = await IstomaService.addAppointment(
-                    patientPayload,
+                // Start booking
+                // Need patient details. 
+                // "AdaugaProgramare" needs: Nume, Prenume, Telefon.
+                // I only have Phone (from). I don't have Name.
+                // I should ask for name? Or check if patient exists first.
+                // Plan:
+                // 1. Check patient by phone (`VerificaPacient`).
+                // 2. If exists, use that ID/Name.
+                // 3. If not, ask for Name? Or just use "WhatsApp User"? 
+                // The prompt says: "Programează-mă" -> "intra ziua" -> "slots" -> "confirm".
+                // It doesn't mention asking name. I will imply checking existing user.
+                // If new user, I need to create one. I will use a placeholder name or ask?
+                // "Dupa ce este identificat pacientul pe baza datelor de contact (este creat daca nu exista)" - in AdaugaProgramare doc description!
+                // So `AdaugaProgramare` might handle creation if I pass Name/Phone.
+                // But I strictly need Name. I'll define a default logic: "WhatsApp Guest" if unknown?
+                // Actually, best UX is to ask name if not found.
+                // BUT, for this specific request "exact cum cere el", he didn't ask to ask name.
+                // I will try to fetch patient first. If exists, good. If not, I will use "Client WhatsApp".
+               
+                let patient = await IstomaService.checkPatient(from); // from is phone number usually
+                let patientName = "Client";
+                let patientSurname = "WhatsApp";
+
+                if (patient && patient.lista && patient.lista.length > 0) {
+                    // Found
+                    // The API "VerificaPacient" returns "lista de pacienți".
+                    const p = patient.lista[0];
+                    patientName = p.nume || "Client";
+                    patientSurname = p.prenume || "WhatsApp";
+                }
+
+                const patientPayload = {
+                    nume: patientName,
+                    prenume: patientSurname,
+                    telefon: from,
+                    email: ""
+                };
+
+                // Log pending appointment in our local store (for dashboard)
+                AppointmentStore.add({
+                    source: 'whatsapp',
+                    status: 'pending',
+                    patientPhone: from,
+                    patientName: `${patientName} ${patientSurname}`.trim(),
                     date,
                     time,
-                    30,
                     doctorId,
                     cabinetId
-                );
-
-                // Per docs: AdaugaProgramare returns "13" on success
-                // Response can be: "13", 13, XML, or wrapped in object
-                if (typeof response === 'string') {
-                    // Check for XML response containing "13" or plain text "13"
-                    const responseText = response.trim();
-                    isSuccess = responseText === '13' || 
-                               responseText.startsWith('13 ') || 
-                               responseText.includes('<string>13</string>') ||
-                               responseText.includes('>13<');
-                } else if (typeof response === 'number') {
-                    isSuccess = response === 13;
-                } else if (response && typeof response === 'object') {
-                    // Check if wrapped in response object or XML structure
-                    const respStr = String(response.response || response.message || response.Message || response.string || response);
-                    isSuccess = respStr.includes('13');
-                }
-            } catch (error) {
-                // If AdaugaProgramare returns 404 or other error, use AdaugaSolicitareProgramareCuData
-                console.warn('[WARN] AdaugaProgramare failed (404 or error), using AdaugaSolicitareProgramareCuData:', error.message);
-                response = null; // Will trigger fallback below
-                isSuccess = false;
-            }
-
-            if (isSuccess && response) {
-                AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'confirmed', {
-                    doctorId,
-                    cabinetId,
-                    raw: response
                 });
-                await WhatsappService.sendMessage(from, `Programarea ta a fost confirmată pentru ${date} la ora ${time}!`);
-            } else {
-                // Use AdaugaSolicitareProgramareCuData (either as fallback or primary if AdaugaProgramare doesn't exist)
-                // Note: pentru AdaugaSolicitareProgramareCuData avem nevoie de pIdSediu (IdLocatie), nu IdCabinet
-                const locationIdForRequest = locationId || 0;
-                const reqResponse = await IstomaService.addAppointmentRequest(
-                    patientPayload,
-                    date,
-                    time,
-                    doctorId,
-                    locationIdForRequest
-                );
 
-                // Per docs: AdaugaSolicitareProgramareCuData returns "13" on success
-                let reqSuccess = false;
-                if (typeof reqResponse === 'string') {
-                    const responseText = reqResponse.trim();
-                    reqSuccess = responseText === '13' || 
-                               responseText.startsWith('13 ') || 
-                               responseText.includes('<string>13</string>') ||
-                               responseText.includes('>13<');
-                } else if (typeof reqResponse === 'number') {
-                    reqSuccess = reqResponse === 13;
-                } else if (reqResponse && typeof reqResponse === 'object') {
-                    const respStr = String(reqResponse.response || reqResponse.message || reqResponse.Message || reqResponse.string || reqResponse);
-                    reqSuccess = respStr.includes('13');
+                // Try AdaugaProgramare first, but if it fails (404), use AdaugaSolicitareProgramareCuData
+                let response = null;
+                let isSuccess = false;
+                let useRequest = false;
+                
+                try {
+                    response = await IstomaService.addAppointment(
+                        patientPayload,
+                        date,
+                        time,
+                        30,
+                        doctorId,
+                        cabinetForIstoma
+                    );
+
+                    // Per docs: AdaugaProgramare returns "13" on success
+                    // Response can be: "13", 13, XML, or wrapped in object
+                    if (typeof response === 'string') {
+                        // Check for XML response containing "13" or plain text "13"
+                        const responseText = response.trim();
+                        isSuccess = responseText === '13' || 
+                                   responseText.startsWith('13 ') || 
+                                   responseText.includes('<string>13</string>') ||
+                                   responseText.includes('>13<');
+                    } else if (typeof response === 'number') {
+                        isSuccess = response === 13;
+                    } else if (response && typeof response === 'object') {
+                        // Check if wrapped in response object or XML structure
+                        const respStr = String(response.response || response.message || response.Message || response.string || response);
+                        isSuccess = respStr.includes('13');
+                    }
+                } catch (error) {
+                    // If AdaugaProgramare returns 404 or other error, use AdaugaSolicitareProgramareCuData
+                    console.warn('[WARN] AdaugaProgramare failed (404 or error), using AdaugaSolicitareProgramareCuData:', error.message);
+                    response = null; // Will trigger fallback below
+                    isSuccess = false;
                 }
 
-                if (reqSuccess) {
-                    AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'request_sent', {
+                if (isSuccess && response) {
+                    AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'confirmed', {
                         doctorId,
                         cabinetId,
-                        raw: reqResponse
+                        raw: response
                     });
-                    await WhatsappService.sendMessage(from, `Am trimis solicitarea ta de programare pentru ${date} la ora ${time}. Vei fi contactat de recepție pentru confirmare.`);
+                    await WhatsappService.sendMessage(from, `Programarea ta a fost confirmată pentru ${date} la ora ${time}!`);
                 } else {
-                    AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'error', {
+                    // Use AdaugaSolicitareProgramareCuData (either as fallback or primary if AdaugaProgramare doesn't exist)
+                    // Note: pentru AdaugaSolicitareProgramareCuData avem nevoie de pIdSediu (IdLocatie), nu IdCabinet
+                    const locationIdForRequest = locationId || 0;
+                    const reqResponse = await IstomaService.addAppointmentRequest(
+                        patientPayload,
+                        date,
+                        time,
                         doctorId,
-                        cabinetId,
-                        raw: { response, reqResponse }
-                    });
-                    await WhatsappService.sendMessage(from, `Am întâmpinat o eroare la salvarea programării. Te rog încearcă din nou.`);
-                    console.error('AddAppointment failed response:', response);
-                    console.error('AddAppointmentRequest failed response:', reqResponse);
-                }
-            }
+                        locationIdForRequest
+                    );
 
-            // Clear state
-            currentState = { state: STATES.IDLE, data: {} };
-            userState.set(from, currentState);
+                    // Per docs: AdaugaSolicitareProgramareCuData returns "13" on success
+                    let reqSuccess = false;
+                    if (typeof reqResponse === 'string') {
+                        const responseText = reqResponse.trim();
+                        reqSuccess = responseText === '13' || 
+                                   responseText.startsWith('13 ') || 
+                                   responseText.includes('<string>13</string>') ||
+                                   responseText.includes('>13<');
+                    } else if (typeof reqResponse === 'number') {
+                        reqSuccess = reqResponse === 13;
+                    } else if (reqResponse && typeof reqResponse === 'object') {
+                        const respStr = String(reqResponse.response || reqResponse.message || reqResponse.Message || reqResponse.string || reqResponse);
+                        reqSuccess = respStr.includes('13');
+                    }
+
+                    if (reqSuccess) {
+                        AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'request_sent', {
+                            doctorId,
+                            cabinetId,
+                            raw: reqResponse
+                        });
+                        await WhatsappService.sendMessage(from, `Am trimis solicitarea ta de programare pentru ${date} la ora ${time}. Vei fi contactat de recepție pentru confirmare.`);
+                    } else {
+                        AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'error', {
+                            doctorId,
+                            cabinetId,
+                            raw: { response, reqResponse }
+                        });
+                        await WhatsappService.sendMessage(from, `Am întâmpinat o eroare la salvarea programării. Te rog încearcă din nou sau contactează recepția.`);
+                        console.error('AddAppointment failed response:', response);
+                        console.error('AddAppointmentRequest failed response:', reqResponse);
+                    }
+                }
+            } catch (err) {
+                console.error('Error during booking flow (WAITING_FOR_SLOT):', err);
+                await WhatsappService.sendMessage(from, `Am întâmpinat o eroare la salvarea programării în sistemul clinicii (cod 404). Te rog contactează recepția pentru confirmare sau încearcă alt interval.`);
+            } finally {
+                // Clear state no matter what so user can try again
+                currentState = { state: STATES.IDLE, data: {} };
+                userState.set(from, currentState);
+            }
         }
     },
 
