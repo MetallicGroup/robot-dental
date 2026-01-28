@@ -12,6 +12,7 @@ const IstomaService = require('./services/istomaService');
 
 const app = express();
 app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 app.use(session({
     secret: process.env.SESSION_SECRET || 'super-secret-dental-bot',
     resave: false,
@@ -181,6 +182,98 @@ app.post('/webhook', async (req, res) => {
         res.sendStatus(200);
     } else {
         res.sendStatus(404);
+    }
+});
+
+// Webhook endpoint pentru Autocalls.ai -> programează direct în iStoma și trimite confirmare pe WhatsApp
+// Așteptăm un payload de forma:
+// {
+//   phone: "40733342513",
+//   name: "Prenume Nume",
+//   date: "28.01.2026",        // sau ISO, dar recomand DD.MM.YYYY ca în Istoma
+//   time: "15:00",
+//   doctorId: 3,               // optional; dacă lipsește, putem pune un fallback
+//   locationId: 5              // optional; dacă lipsește, folosim fallback sau 0
+// }
+app.post('/api/autocall/book', async (req, res) => {
+    try {
+        const { phone, name, date, time, doctorId, locationId } = req.body || {};
+
+        if (!phone || !date || !time) {
+            return res.status(400).json({ error: 'phone, date și time sunt obligatorii' });
+        }
+
+        // Normalizează telefonul la format 407xxxxxxxx
+        const normalizedPhone = SheetService.normalizePhone
+            ? SheetService.normalizePhone(phone)
+            : phone;
+
+        const fullName = (name || 'Client Autocall').trim();
+        const parts = fullName.split(' ');
+        const nume = parts[0] || 'Client';
+        const prenume = parts.slice(1).join(' ') || 'Autocall';
+
+        const patientPayload = {
+            nume,
+            prenume,
+            telefon: normalizedPhone,
+            email: ''
+        };
+
+        // Dacă doctorId / locationId nu vin din Autocalls, folosim fallback-urile deja folosite în bot
+        const fallbackDoctorId = doctorId || 3; // de ex. Dr. UDECI Madalina ID=3
+        const fallbackLocationId = locationId || 5; // IdLocatie din intervalele Istoma pentru sediul principal
+
+        const cabinetForIstoma = fallbackLocationId;
+
+        // Apelează direct AdaugaProgramare în Istoma
+        const responseData = await IstomaService.addAppointment(
+            patientPayload,
+            date,
+            time,
+            30,
+            fallbackDoctorId,
+            cabinetForIstoma
+        );
+
+        // Refolosim aceeași logică de success ca în ConversationManager:
+        let isSuccess = false;
+        if (typeof responseData === 'string') {
+            const responseText = responseData.trim();
+            isSuccess =
+                responseText === '13' ||
+                responseText === '200' ||
+                responseText.startsWith('13 ') ||
+                responseText.includes('<string>13</string>') ||
+                responseText.includes('>13<') ||
+                responseText.includes('<string>200</string>') ||
+                responseText.includes('>200<');
+        } else if (typeof responseData === 'number') {
+            isSuccess = responseData === 13 || responseData === 200;
+        } else if (responseData && typeof responseData === 'object') {
+            const respStr = String(
+                responseData.response ||
+                responseData.message ||
+                responseData.Message ||
+                responseData.string ||
+                responseData
+            );
+            isSuccess = respStr.includes('13') || respStr.includes('200');
+        }
+
+        if (!isSuccess) {
+            console.error('Autocall booking failed in Istoma. Raw response:', responseData);
+            return res.status(500).json({ error: 'Istoma booking failed', raw: responseData });
+        }
+
+        // Trimite mesaj de confirmare pe WhatsApp către pacient
+        const confirmText = `Programarea ta a fost înregistrată pentru ${date} la ora ${time}. Vei fi așteptat(ă) la clinică.`;
+        await WhatsappService.sendMessage(normalizedPhone, confirmText);
+
+        return res.json({ ok: true, istomaResponse: responseData });
+    } catch (err) {
+        console.error('Error in /api/autocall/book:', err);
+        return res.status(500).json({ error: err.message || 'Internal error' });
     }
 });
 
