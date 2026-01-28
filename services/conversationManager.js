@@ -292,49 +292,18 @@ const ConversationManager = {
                     });
                     await WhatsappService.sendMessage(from, `Programarea ta a fost confirmată pentru ${date} la ora ${time}!`);
                 } else {
-                    // Use AdaugaSolicitareProgramareCuData (either as fallback or primary if AdaugaProgramare doesn't exist)
-                    // Note: pentru AdaugaSolicitareProgramareCuData avem nevoie de pIdSediu (IdLocatie), nu IdCabinet
-                    const locationIdForRequest = locationId || 0;
-                    const reqResponse = await IstomaService.addAppointmentRequest(
-                        patientPayload,
-                        date,
-                        time,
+                    // În instalarea ta curentă, endpoint-ul AdaugaSolicitareProgramareCuData întoarce 404,
+                    // deci nu are sens să mai încercăm fallback-ul. Raportăm clar eroarea către utilizator.
+                    AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'error', {
                         doctorId,
-                        locationIdForRequest
+                        cabinetId,
+                        raw: { response }
+                    });
+                    await WhatsappService.sendMessage(
+                        from,
+                        `Nu am reușit să salvez programarea pentru ${date} la ora ${time} în sistemul clinicii. Te rog contactează recepția sau încearcă alt interval.`
                     );
-
-                    // Per docs: AdaugaSolicitareProgramareCuData returns "13" on success
-                    let reqSuccess = false;
-                    if (typeof reqResponse === 'string') {
-                        const responseText = reqResponse.trim();
-                        reqSuccess = responseText === '13' || 
-                                   responseText.startsWith('13 ') || 
-                                   responseText.includes('<string>13</string>') ||
-                                   responseText.includes('>13<');
-                    } else if (typeof reqResponse === 'number') {
-                        reqSuccess = reqResponse === 13;
-                    } else if (reqResponse && typeof reqResponse === 'object') {
-                        const respStr = String(reqResponse.response || reqResponse.message || reqResponse.Message || reqResponse.string || reqResponse);
-                        reqSuccess = respStr.includes('13');
-                    }
-
-                    if (reqSuccess) {
-                        AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'request_sent', {
-                            doctorId,
-                            cabinetId,
-                            raw: reqResponse
-                        });
-                        await WhatsappService.sendMessage(from, `Am trimis solicitarea ta de programare pentru ${date} la ora ${time}. Vei fi contactat de recepție pentru confirmare.`);
-                    } else {
-                        AppointmentStore.updateStatusByPhoneDateTime(from, date, time, 'error', {
-                            doctorId,
-                            cabinetId,
-                            raw: { response, reqResponse }
-                        });
-                        await WhatsappService.sendMessage(from, `Am întâmpinat o eroare la salvarea programării. Te rog încearcă din nou sau contactează recepția.`);
-                        console.error('AddAppointment failed response:', response);
-                        console.error('AddAppointmentRequest failed response:', reqResponse);
-                    }
+                    console.error('AddAppointment failed response (no fallback AdaugaSolicitareProgramareCuData):', response);
                 }
             } catch (err) {
                 console.error('Error during booking flow (WAITING_FOR_SLOT):', err);
