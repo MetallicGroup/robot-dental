@@ -420,19 +420,15 @@ const IstomaService = {
             pObservatii: patientData.observatii || 'Programat prin WhatsApp'
         };
 
-        console.log(`[DEBUG] AdaugaProgramare params:`, JSON.stringify(params, null, 2));
+        console.log(`[DEBUG] AdaugaProgramare params (GET query):`, JSON.stringify(params, null, 2));
 
-        // POST with form data (not query params!)
-        // Per docs, AdaugaProgramare expects POST with form-urlencoded body
-        const formData = querystring.stringify(formatParams(params));
-        
-        console.log(`[DEBUG] AdaugaProgramare form data:`, formData);
-        
-        const response = await apiClient.post('AdaugaProgramare', formData, { 
-            headers: { 
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Content-Length': Buffer.byteLength(formData)
-            }
+        // IMPORTANT: iStoma a confirmat că apelul funcționează ca GET cu query string,
+        // nu ca POST cu body form-urlencoded. Aliniem exact cu exemplul lor din Postman.
+        const fullUrl = `${BASE_URL}AdaugaProgramare?${new URLSearchParams(formatParams(params)).toString()}`;
+        console.log('[DEBUG] Calling AdaugaProgramare URL:', fullUrl.substring(0, 300));
+
+        const response = await apiClient.get('AdaugaProgramare', {
+            params: formatParams(params)
         });
         
         console.log(`[DEBUG] AdaugaProgramare response:`, response.data);
@@ -461,18 +457,13 @@ const IstomaService = {
             pNumeMedic: doctorName || '' // Optional: name of doctor if known
         };
 
-        console.log(`[DEBUG] AdaugaSolicitareProgramareCuData params:`, JSON.stringify(params, null, 2));
+        console.log(`[DEBUG] AdaugaSolicitareProgramareCuData params (GET query):`, JSON.stringify(params, null, 2));
 
-        // POST with form data (not query params!)
-        const formData = querystring.stringify(formatParams(params));
-        
-        console.log(`[DEBUG] AdaugaSolicitareProgramareCuData form data:`, formData);
-        
-        const response = await apiClient.post('AdaugaSolicitareProgramareCuData', formData, { 
-            headers: { 
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Content-Length': Buffer.byteLength(formData)
-            }
+        const fullUrl = `${BASE_URL}AdaugaSolicitareProgramareCuData?${new URLSearchParams(formatParams(params)).toString()}`;
+        console.log('[DEBUG] Calling AdaugaSolicitareProgramareCuData URL:', fullUrl.substring(0, 300));
+
+        const response = await apiClient.get('AdaugaSolicitareProgramareCuData', {
+            params: formatParams(params)
         });
         
         console.log(`[DEBUG] AdaugaSolicitareProgramareCuData response:`, response.data);
