@@ -261,21 +261,26 @@ const ConversationManager = {
                         cabinetForIstoma
                     );
 
-                    // Per docs: AdaugaProgramare returns "13" on success
-                    // Response can be: "13", 13, XML, or wrapped in object
+                    // Per docs: AdaugaProgramare returns "13" on success,
+                    // dar în implementarea actuală a clientului tău răspunde cu "200" (cod succes).
+                    // Tratăm atât 13, cât și 200 ca succes.
                     if (typeof response === 'string') {
                         // Check for XML response containing "13" or plain text "13"
                         const responseText = response.trim();
-                        isSuccess = responseText === '13' || 
-                                   responseText.startsWith('13 ') || 
-                                   responseText.includes('<string>13</string>') ||
-                                   responseText.includes('>13<');
+                        isSuccess =
+                            responseText === '13' ||
+                            responseText === '200' ||
+                            responseText.startsWith('13 ') ||
+                            responseText.includes('<string>13</string>') ||
+                            responseText.includes('>13<') ||
+                            responseText.includes('<string>200</string>') ||
+                            responseText.includes('>200<');
                     } else if (typeof response === 'number') {
-                        isSuccess = response === 13;
+                        isSuccess = response === 13 || response === 200;
                     } else if (response && typeof response === 'object') {
                         // Check if wrapped in response object or XML structure
                         const respStr = String(response.response || response.message || response.Message || response.string || response);
-                        isSuccess = respStr.includes('13');
+                        isSuccess = respStr.includes('13') || respStr.includes('200');
                     }
                 } catch (error) {
                     // If AdaugaProgramare returns 404 or other error, use AdaugaSolicitareProgramareCuData
