@@ -420,14 +420,16 @@ const IstomaService = {
             pObservatii: patientData.observatii || 'Programat prin WhatsApp'
         };
 
-        console.log(`[DEBUG] AdaugaProgramare params (GET query):`, JSON.stringify(params, null, 2));
+        console.log(`[DEBUG] AdaugaProgramare params (POST with query):`, JSON.stringify(params, null, 2));
 
-        // IMPORTANT: iStoma a confirmat că apelul funcționează ca GET cu query string,
-        // nu ca POST cu body form-urlencoded. Aliniem exact cu exemplul lor din Postman.
+        // IMPORTANT:
+        // Suportul iStoma a testat cu URL complet (query string) și a confirmat că metoda este funcțională.
+        // Folosim metoda POST (conform semnăturii lor), dar trimitem parametrii în query string,
+        // aliniați cu exemplul lor.
         const fullUrl = `${BASE_URL}AdaugaProgramare?${new URLSearchParams(formatParams(params)).toString()}`;
-        console.log('[DEBUG] Calling AdaugaProgramare URL:', fullUrl.substring(0, 300));
+        console.log('[DEBUG] Calling AdaugaProgramare URL (POST with query):', fullUrl.substring(0, 300));
 
-        const response = await apiClient.get('AdaugaProgramare', {
+        const response = await apiClient.post('AdaugaProgramare', null, {
             params: formatParams(params)
         });
         
@@ -457,12 +459,12 @@ const IstomaService = {
             pNumeMedic: doctorName || '' // Optional: name of doctor if known
         };
 
-        console.log(`[DEBUG] AdaugaSolicitareProgramareCuData params (GET query):`, JSON.stringify(params, null, 2));
+        console.log(`[DEBUG] AdaugaSolicitareProgramareCuData params (POST with query):`, JSON.stringify(params, null, 2));
 
         const fullUrl = `${BASE_URL}AdaugaSolicitareProgramareCuData?${new URLSearchParams(formatParams(params)).toString()}`;
-        console.log('[DEBUG] Calling AdaugaSolicitareProgramareCuData URL:', fullUrl.substring(0, 300));
+        console.log('[DEBUG] Calling AdaugaSolicitareProgramareCuData URL (POST with query):', fullUrl.substring(0, 300));
 
-        const response = await apiClient.get('AdaugaSolicitareProgramareCuData', {
+        const response = await apiClient.post('AdaugaSolicitareProgramareCuData', null, {
             params: formatParams(params)
         });
         
