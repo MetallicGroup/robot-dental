@@ -259,8 +259,9 @@ const IstomaService = {
             const params = {
                 pDataInceputZZLLAAAA: formattedDate,
                 pDataSfarsitZZLLAAAA: formattedDate,
-                pOraInceput: '08:00',
-                pOraFinal: '20:00',
+                // API-ul așteaptă ora fără sufix ":00" (ex: "08", nu "08:00")
+                pOraInceput: '08',
+                pOraFinal: '21',
                 pListaIdMedici: doctorIdsStr || '', // Empty string means all doctors
                 pIdSediu: locId
             };

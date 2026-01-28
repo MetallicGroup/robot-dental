@@ -86,8 +86,8 @@ GET https://supersmilesib.digitalclinic.ro/api/PacientAPI/GetListaIntervaleActiv
   ?pCheie=CHEIA_TA
   &pDataInceputZZLLAAAA=28012026
   &pDataSfarsitZZLLAAAA=28012026
-  &pOraInceput=08:00
-  &pOraFinal=20:00
+  &pOraInceput=08
+  &pOraFinal=21
   &pListaIdMedici=1,2,3,4,5
   &pIdSediu=3
 ```

@@ -57,7 +57,7 @@ Pentru fiecare medic (PAVEL, UDECI, COROIAN, CRETIU):
 După configurare, testează din nou:
 
 ```
-https://supersmilesib.digitalclinic.ro/api/PacientAPI/GetListaIntervaleActivitate?pCheie=CHEIA_TA&pDataInceputZZLLAAAA=28012026&pDataSfarsitZZLLAAAA=28012026&pOraInceput=08:00&pOraFinal=21:00&pListaIdMedici=2,3,4,5&pIdSediu=2
+https://supersmilesib.digitalclinic.ro/api/PacientAPI/GetListaIntervaleActivitate?pCheie=CHEIA_TA&pDataInceputZZLLAAAA=28012026&pDataSfarsitZZLLAAAA=28012026&pOraInceput=08&pOraFinal=21&pListaIdMedici=2,3,4,5&pIdSediu=2
 ```
 
 **Așteptat**: XML cu `<ArrayOfIntervalCabinetAPIModel>` care conține intervale, nu `i:nil="true"`
