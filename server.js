@@ -202,7 +202,64 @@ app.get('/api/autocall/book', (req, res) => {
 
 app.post('/api/autocall/book', async (req, res) => {
     try {
-        const { phone, name, date, time, doctorId, locationId } = req.body || {};
+        // Logăm tot ce vine de la Autocalls ca să vedem structura payload-ului real
+        console.log('[AUTOCALL] Incoming webhook:', {
+            method: req.method,
+            headers: req.headers,
+            body: req.body,
+            query: req.query
+        });
+
+        const rawBody = req.body || {};
+        const rawQuery = req.query || {};
+
+        // Încearcă să găsești câmpurile în mai multe locuri posibile (body direct, query, nested objects)
+        const vars =
+            rawBody.post_call ||
+            rawBody.variables ||
+            rawBody.data ||
+            rawBody;
+
+        const phone =
+            rawBody.phone ||
+            rawQuery.phone ||
+            rawBody.lead?.phone ||
+            rawBody.customer_phone ||
+            vars?.phone ||
+            vars?.customer_phone;
+
+        const name =
+            rawBody.name ||
+            rawBody.lead?.name ||
+            rawBody.customer_name ||
+            vars?.customer_name ||
+            'Client Autocall';
+
+        const date =
+            rawBody.date ||
+            rawQuery.date ||
+            vars?.booking_date ||
+            vars?.date ||
+            rawBody.booking_date;
+
+        const time =
+            rawBody.time ||
+            rawQuery.time ||
+            vars?.booking_time ||
+            vars?.time ||
+            rawBody.booking_time;
+
+        const doctorId =
+            rawBody.doctorId ||
+            rawBody.doctor_id ||
+            vars?.doctorId ||
+            vars?.doctor_id;
+
+        const locationId =
+            rawBody.locationId ||
+            rawBody.location_id ||
+            vars?.locationId ||
+            vars?.location_id;
 
         if (!phone || !date || !time) {
             // Pentru testele de tip "Make test request" din Autocalls, nu avem încă payload complet.
