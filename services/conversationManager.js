@@ -21,6 +21,35 @@ const DAYS_MAP = {
     'sambata': 6, 'sâmbătă': 6
 };
 
+// Helper maps for doctor names and clinic addresses
+const DOCTOR_NAMES = {
+    2: 'Dr. PAVEL Iulia',
+    3: 'Dr. UDECI Madalina',
+    4: 'Dr. COROIAN Andrei',
+    5: 'Dr. CRETIU Raul'
+};
+
+const LOCATION_INFO = {
+    5: {
+        name: 'SUPERSMILE SIBIU',
+        address: 'Str. Octav Doicescu'
+    },
+    11: {
+        name: 'SUPERSMILE - ARHITECTILOR',
+        address: 'Str. Doamna Stanca'
+    }
+};
+
+function getDoctorName(id) {
+    const numericId = Number(id);
+    return DOCTOR_NAMES[numericId] || `Doctor ${numericId || ''}`.trim();
+}
+
+function getLocationInfo(id) {
+    const numericId = Number(id);
+    return LOCATION_INFO[numericId] || { name: 'Clinica Supersmile', address: '' };
+}
+
 const ConversationManager = {
     async handleMessage(from, messageObj) {
         let currentState = userState.get(from) || { state: STATES.IDLE, data: {} };
@@ -44,6 +73,47 @@ const ConversationManager = {
         }
 
         console.log(`User: ${from}, State: ${currentState.state}, Input: ${text}`);
+
+        // Detectează mesaje de schimbare programare
+        const changeKeywords = [
+            'schimbă programarea', 'schimba programarea', 'schimb programarea',
+            'vreau altă oră', 'vreau alta ora', 'altă oră', 'alta ora',
+            'altă dată', 'alta data', 'vreau altă dată', 'vreau alta data',
+            'modifică programarea', 'modifica programarea', 'modific programarea',
+            'anulează programarea', 'anuleaza programarea', 'anulez programarea',
+            'cancel programarea', 'cancel programare'
+        ];
+        
+        const wantsToChange = changeKeywords.some(keyword => text.includes(keyword));
+        
+        if (wantsToChange) {
+            // Găsește programarea activă pentru acest client
+            const activeAppointment = AppointmentStore.findActiveAppointment(from);
+            
+            if (!activeAppointment) {
+                await WhatsappService.sendMessage(from, "Nu am găsit o programare activă pentru tine. Dacă vrei să te programezi, scrie 'Programează-mă'.");
+                return;
+            }
+            
+            // Anunță clientul că va schimba programarea
+            await WhatsappService.sendMessage(from, `Am găsit programarea ta pentru ${activeAppointment.date} la ora ${activeAppointment.time}. Te rog să-mi spui noua dată și ora dorită (ex: "mâine la ora 15" sau "30.01.2026 la ora 10").`);
+            
+            // Setează starea pentru schimbare programare
+            currentState = { 
+                state: 'CHANGING_APPOINTMENT', 
+                data: { 
+                    oldAppointment: activeAppointment,
+                    step: 'waiting_for_new_date'
+                } 
+            };
+            userState.set(from, currentState);
+            return;
+        }
+
+        // Handle starea de schimbare programare
+        if (currentState.state === 'CHANGING_APPOINTMENT') {
+            return await this.handleAppointmentChange(from, text, currentState);
+        }
 
         // Handle "Programează-mă" trigger from button or text
         if (text === 'programează-mă' || text === 'programeaza-ma' || text === 'programeaza ma') {
@@ -453,6 +523,158 @@ const ConversationManager = {
         options.sort((a, b) => a.displayTitle.localeCompare(b.displayTitle));
 
         return options;
+    },
+
+    // Gestionează schimbarea programării
+    async handleAppointmentChange(from, text, currentState) {
+        const oldAppointment = currentState.data.oldAppointment;
+        
+        if (!oldAppointment) {
+            userState.set(from, { state: STATES.IDLE, data: {} });
+            await WhatsappService.sendMessage(from, "Nu am găsit programarea. Scrie 'Programează-mă' pentru o programare nouă.");
+            return;
+        }
+
+        // Încearcă să extragă data și ora din mesaj
+        // Format posibil: "mâine la ora 15", "30.01.2026 la ora 10", "ora 20", etc.
+        let newDate = null;
+        let newTime = null;
+
+        // Parsează data
+        const dateMatch = text.match(/(\d{2}\.\d{2}\.\d{4})|(mâine|poimâine|astăzi|azi)/i);
+        if (dateMatch) {
+            if (dateMatch[1]) {
+                // Format DD.MM.YYYY
+                newDate = dateMatch[1];
+            } else {
+                // "mâine", "astăzi", etc.
+                const today = new Date();
+                if (text.includes('mâine') || text.includes('maine')) {
+                    newDate = format(addDays(today, 1), 'dd.MM.yyyy');
+                } else if (text.includes('poimâine') || text.includes('poimaine')) {
+                    newDate = format(addDays(today, 2), 'dd.MM.yyyy');
+                } else if (text.includes('astăzi') || text.includes('azi')) {
+                    newDate = format(today, 'dd.MM.yyyy');
+                }
+            }
+        } else {
+            // Dacă nu specifică data, folosim data vechii programări
+            newDate = oldAppointment.date;
+        }
+
+        // Parsează ora
+        const timeMatch = text.match(/(\d{1,2}):(\d{2})|ora\s+(\d{1,2})|la\s+ora\s+(\d{1,2})/i);
+        if (timeMatch) {
+            if (timeMatch[1] && timeMatch[2]) {
+                // Format HH:MM
+                newTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
+            } else {
+                // "ora 15" sau "la ora 15"
+                const hour = timeMatch[3] || timeMatch[4];
+                newTime = `${hour.padStart(2, '0')}:00`;
+            }
+        }
+
+        if (!newDate || !newTime) {
+            await WhatsappService.sendMessage(from, "Te rog să-mi spui noua dată și ora (ex: 'mâine la ora 15' sau '30.01.2026 la ora 10').");
+            return;
+        }
+
+        // Verifică disponibilitatea pentru noua dată/oră
+        await WhatsappService.sendMessage(from, `Verific disponibilitatea pentru ${newDate} la ora ${newTime}...`);
+
+        try {
+            // Obține sloturile disponibile
+            const slots = await IstomaService.getAvailableSlots(newDate, [], []);
+            
+            // Filtrăm sloturile care acoperă ora cerută
+            const requestedDateTime = parse(`${newDate} ${newTime}`, 'dd.MM.yyyy HH:mm', new Date());
+            const matchingSlots = slots.filter(slot => {
+                const startStr = slot.DataInceputInterval || slot.dataInceputInterval || slot.StartDate;
+                const endStr = slot.DataFinalInterval || slot.dataFinalInterval || slot.EndDate;
+                if (!startStr || !endStr) return false;
+
+                const start = new Date(startStr);
+                const end = new Date(endStr);
+                if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
+
+                return requestedDateTime >= start && requestedDateTime < end;
+            });
+
+            if (matchingSlots.length === 0) {
+                await WhatsappService.sendMessage(from, `Îmi pare rău, dar nu există disponibilitate la ora ${newTime} în ziua ${newDate}. Te rugăm să alegi altă oră sau altă dată.`);
+                userState.set(from, { state: STATES.IDLE, data: {} });
+                return;
+            }
+
+            // Selectează primul slot disponibil
+            const chosenSlot = matchingSlots[0];
+            const newDoctorId = Number(chosenSlot.IdMedic || chosenSlot.idMedic);
+            const newLocationId = Number(chosenSlot.IdLocatie || chosenSlot.idLocatie);
+            const newCabinetId = Number(chosenSlot.IdCabinet || chosenSlot.idCabinet);
+
+            // Adaugă noua programare în iStoma
+            const patientData = {
+                nume: oldAppointment.patientName.split(' ')[0] || 'Client',
+                prenume: oldAppointment.patientName.split(' ').slice(1).join(' ') || 'WhatsApp',
+                telefon: from,
+                email: ''
+            };
+
+            const responseData = await IstomaService.addAppointment(
+                patientData,
+                newDate,
+                newTime,
+                30,
+                newDoctorId,
+                newLocationId // Folosim IdLocatie ca pIdCabinet
+            );
+
+            // Verifică success
+            let isSuccess = false;
+            if (typeof responseData === 'string') {
+                const responseText = responseData.trim();
+                isSuccess = responseText === '13' || responseText === '200' || 
+                           responseText.includes('13') || responseText.includes('200');
+            } else if (typeof responseData === 'number') {
+                isSuccess = responseData === 13 || responseData === 200;
+            }
+
+            if (!isSuccess) {
+                await WhatsappService.sendMessage(from, `Îmi pare rău, dar nu am putut schimba programarea. Te rugăm să contactezi recepția.`);
+                userState.set(from, { state: STATES.IDLE, data: {} });
+                return;
+            }
+
+            // Marchează programarea veche ca anulată
+            AppointmentStore.cancelAppointment(from, oldAppointment.date, oldAppointment.time);
+
+            // Adaugă noua programare în AppointmentStore
+            AppointmentStore.add({
+                source: 'whatsapp',
+                status: 'confirmed',
+                patientPhone: from,
+                patientName: oldAppointment.patientName,
+                date: newDate,
+                time: newTime,
+                doctorId: newDoctorId,
+                cabinetId: newLocationId,
+                raw: responseData
+            });
+
+            // Trimite confirmare cu noua programare
+            const doctorName = getDoctorName(newDoctorId);
+            const locInfo = getLocationInfo(newLocationId);
+            const confirmText = `✅ Programarea ta a fost schimbată cu succes!\n\n📅 Data: ${newDate}\n🕐 Ora: ${newTime}\n👨‍⚕️ Medic: ${doctorName}\n📍 Locație: ${locInfo.name}${locInfo.address ? ', ' + locInfo.address : ''}\n\nProgramarea veche (${oldAppointment.date} la ora ${oldAppointment.time}) a fost anulată.`;
+
+            await WhatsappService.sendMessage(from, confirmText);
+            userState.set(from, { state: STATES.IDLE, data: {} });
+
+        } catch (err) {
+            console.error('Error changing appointment:', err);
+            await WhatsappService.sendMessage(from, `Îmi pare rău, dar a apărut o eroare la schimbarea programării. Te rugăm să încerci din nou sau să contactezi recepția.`);
+            userState.set(from, { state: STATES.IDLE, data: {} });
+        }
     }
 };
 

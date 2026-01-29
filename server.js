@@ -648,9 +648,9 @@ app.post('/api/autocall/book', async (req, res) => {
                         alternativeDoctors.forEach((alt, idx) => {
                             whatsappMessage += `${idx + 1}. ${alt.doctorName} - ${alt.locationInfo.name}\n`;
                         });
-                        whatsappMessage += `\nTe rugăm să ne contactezi pentru a programa la unul dintre acești medici.`;
+                        whatsappMessage += `\n\nScrie "vreau altă oră" sau "schimbă programarea" pentru a alege o altă oră sau dată.`;
                     } else {
-                        whatsappMessage += `\n\nNu există medici disponibili la ora ${time} în ziua ${date}. Te rugăm să alegi altă oră sau altă dată.`;
+                        whatsappMessage += `\n\nNu există medici disponibili la ora ${time} în ziua ${date}. Te rugăm să alegi altă oră sau altă dată.\n\nScrie "vreau altă oră" sau "schimbă programarea" pentru a alege o altă opțiune.`;
                     }
 
                     console.log('[AUTOCALL] Requested doctor not available, sending WhatsApp with alternatives');
@@ -848,6 +848,16 @@ app.post('/api/autocall/book', async (req, res) => {
         } else {
             console.log('[AUTOCALL] WhatsApp template sent successfully');
         }
+
+        // Trimite mesaj cu instrucțiuni pentru schimbare programare (după un mic delay pentru a nu fi blocat)
+        setTimeout(async () => {
+            try {
+                const changeInstructions = `💡 Dacă vrei să schimbi programarea, scrie "schimbă programarea" sau "vreau altă oră" și îți voi sugera alternative disponibile.`;
+                await WhatsappService.sendMessage(normalizedPhone, changeInstructions);
+            } catch (err) {
+                console.error('[AUTOCALL] Failed to send change instructions:', err);
+            }
+        }, 2000); // Delay de 2 secunde
 
         // Trimite email cu rezumatul conversației și înregistrarea (dacă există)
         const emailTo = process.env.EMAIL_TO || process.env.SMTP_USER; // Email destinatar (din .env)

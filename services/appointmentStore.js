@@ -91,6 +91,35 @@ const AppointmentStore = {
         };
         persist();
         return appointments[idx];
+    },
+
+    // Găsește programarea activă (confirmată) pentru un client
+    findActiveAppointment(phone) {
+        ensureLoaded();
+        // Găsește programarea cea mai recentă confirmată pentru acest client
+        const activeAppointments = appointments
+            .filter(a => a.patientPhone === phone && a.status === 'confirmed')
+            .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        
+        return activeAppointments.length > 0 ? activeAppointments[0] : null;
+    },
+
+    // Marchează programarea ca anulată
+    cancelAppointment(phone, date, time) {
+        ensureLoaded();
+        const idx = appointments.findIndex(
+            a => a.patientPhone === phone && a.date === date && a.time === time && a.status === 'confirmed'
+        );
+        if (idx !== -1) {
+            appointments[idx] = {
+                ...appointments[idx],
+                status: 'cancelled',
+                cancelledAt: new Date().toISOString()
+            };
+            persist();
+            return appointments[idx];
+        }
+        return null;
     }
 };
 
