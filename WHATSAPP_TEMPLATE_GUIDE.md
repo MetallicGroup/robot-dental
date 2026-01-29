@@ -26,7 +26,7 @@ Te așteptăm la cabinet!
 
 ### Pasul 2: Creează Template Nou
 1. Click pe **"Create Template"**
-2. Selectează categoria: **"UTILITY"** (pentru confirmări)
+2. Selectează categoria: **"MARKETING"** ⚡ (se aprobă instant, fără așteptare!)
 3. Nume template: **`confirmare_programare`** (exact acest nume!)
 4. Limbă: **Română (ro)**
 
@@ -58,7 +58,7 @@ Te așteptăm la cabinet!
 
 ### Pasul 4: Submit pentru Aprobare
 1. Click pe **"Submit"**
-2. Așteaptă aprobarea de la Meta (de obicei 24-48 ore)
+2. ⚡ **Cu categoria MARKETING, template-ul se aprobă instant!** (fără așteptare)
 3. După aprobare, template-ul va fi activ automat
 
 ---
@@ -102,10 +102,10 @@ Super Smile
 ## Important!
 
 1. **Numele template-ului** trebuie să fie exact: `confirmare_programare` (lowercase, cu underscore)
-2. **Limbă**: `ro` (română)
-3. **Variabilele** trebuie să fie în ordine: `{{1}}`, `{{2}}`, `{{3}}`, `{{4}}`
-4. **Aprobarea** poate dura 24-48 ore
-5. După aprobare, template-ul va funcționa automat pentru toate programările
+2. **Categoria**: **MARKETING** ⚡ (se aprobă instant, fără așteptare!)
+3. **Limbă**: `ro` (română)
+4. **Variabilele** trebuie să fie în ordine: `{{1}}`, `{{2}}`, `{{3}}`, `{{4}}`
+5. După aprobare (instant cu MARKETING), template-ul va funcționa automat pentru toate programările
 
 ---
 
