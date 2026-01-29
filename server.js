@@ -117,6 +117,17 @@ app.get('/api/appointments', requireAuth, (req, res) => {
     }
 });
 
+// Public API simplu pentru website: cele mai recente programări (WhatsApp + Autocall)
+// GET /api/public/appointments
+app.get('/api/public/appointments', (req, res) => {
+    try {
+        const items = AppointmentStore.getAll().slice(0, 20); // ultimele 20
+        res.json(items);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // API: create manual appointment from dashboard (protected)
 app.post('/api/appointments', requireAuth, (req, res) => {
     try {
@@ -543,6 +554,19 @@ app.post('/api/autocall/book', async (req, res) => {
             console.error('Autocall booking failed in Istoma. Raw response:', responseData);
             return res.status(500).json({ error: 'Istoma booking failed', raw: responseData });
         }
+
+        // Logăm programarea și în AppointmentStore pentru dashboard / website
+        AppointmentStore.add({
+            source: 'autocall',
+            status: 'confirmed',
+            patientPhone: normalizedPhone,
+            patientName: fullName,
+            date,
+            time,
+            doctorId: effectiveDoctorId,
+            cabinetId: effectiveLocationId,
+            raw: responseData
+        });
 
         // Trimite mesaj de confirmare pe WhatsApp către pacient, cu doctor și adresă
         const doctorName = getDoctorName(effectiveDoctorId);
