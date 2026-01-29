@@ -241,6 +241,96 @@ app.get('/api/autocall/book', (req, res) => {
     res.json({ ok: true, message: 'Autocall webhook endpoint is reachable. Use POST with JSON body for real bookings.' });
 });
 
+// Custom mid-call tool endpoint: întoarce disponibilitatea pe medici/cabinete pentru o anumită zi
+// GET /api/autocall/slots?date=28.01.2026
+app.get('/api/autocall/slots', async (req, res) => {
+    const { date, locationId } = req.query || {};
+
+    if (!date) {
+        return res.status(400).json({ error: 'date (DD.MM.YYYY) este obligatoriu' });
+    }
+
+    try {
+        // Dacă avem locationId, filtrăm doar pe acel sediu, altfel lăsăm 0 (toate sediile)
+        const locationIds = locationId ? [Number(locationId)] : [];
+        const doctorIds = []; // gol = toți medicii
+
+        const slots = await IstomaService.getAvailableSlots(date, doctorIds, locationIds);
+
+        if (!slots || slots.length === 0) {
+            return res.json({
+                date,
+                doctors: [],
+                message: `Nu am găsit niciun interval disponibil în Istoma pentru data de ${date}.`
+            });
+        }
+
+        // Grupăm sloturile pe doctor și locație
+        const doctorMap = {};
+
+        for (const slot of slots) {
+            const docId = Number(slot.IdMedic || slot.idMedic || slot.IDMedic);
+            const locId = Number(slot.IdLocatie || slot.idLocatie || slot.IDLocatie);
+            const startStr =
+                slot.DataInceputInterval ||
+                slot.dataInceputInterval ||
+                slot.StartDate ||
+                slot.dataInceput;
+
+            if (!docId || !startStr) continue;
+
+            // Extragem ora HH:MM
+            let time = '';
+            if (startStr.includes('T')) {
+                time = startStr.split('T')[1].substring(0, 5);
+            } else if (startStr.includes(' ')) {
+                time = startStr.split(' ')[1].substring(0, 5);
+            }
+            if (!time) continue;
+
+            if (!doctorMap[docId]) {
+                doctorMap[docId] = {};
+            }
+            if (!doctorMap[docId][locId]) {
+                doctorMap[docId][locId] = new Set();
+            }
+            doctorMap[docId][locId].add(time);
+        }
+
+        const doctors = Object.entries(doctorMap).map(([docIdStr, locs]) => {
+            const docId = Number(docIdStr);
+            const doctorName = getDoctorName(docId);
+
+            const locations = Object.entries(locs).map(([locIdStr, timesSet]) => {
+                const locId = Number(locIdStr);
+                const locInfo = getLocationInfo(locId);
+                const times = Array.from(timesSet).sort();
+
+                return {
+                    locationId: locId,
+                    locationName: locInfo.name,
+                    address: locInfo.address,
+                    times
+                };
+            });
+
+            return {
+                doctorId: docId,
+                doctorName,
+                locations
+            };
+        });
+
+        return res.json({
+            date,
+            doctors
+        });
+    } catch (err) {
+        console.error('[AUTOCALL] Error in /api/autocall/slots:', err);
+        return res.status(500).json({ error: 'Eroare la citirea programului din Istoma.' });
+    }
+});
+
 app.post('/api/autocall/book', async (req, res) => {
     try {
         // Logăm tot ce vine de la Autocalls ca să vedem structura payload-ului real
