@@ -257,6 +257,11 @@ app.get('/api/autocall/book', (req, res) => {
 // GET /api/autocall/slots?date=28.01.2026&time=20:00&doctor_id=2
 // Endpoint pentru mid-call tool Autocalls: verifică disponibilitatea medicilor
 app.get('/api/autocall/slots', async (req, res) => {
+    console.log('[AUTOCALL TOOL] Incoming request to /api/autocall/slots:', {
+        query: req.query,
+        headers: req.headers
+    });
+    
     const { date, time, doctor_id, location_id } = req.query || {};
 
     // Pentru testele Autocalls cu "Example value", returnăm un răspuns de test IMEDIAT
@@ -450,13 +455,17 @@ app.get('/api/autocall/slots', async (req, res) => {
         // Dacă avem time și doctor_id specificat și găsim sloturi, medicul este disponibil
         const isAvailable = time && doctor_id && filteredSlots.length > 0;
 
-        return res.json({
+        const response = {
             date,
             time: time || null,
             doctor_id: doctor_id ? Number(doctor_id) : null,
             available: isAvailable,
             doctors
-        });
+        };
+
+        console.log('[AUTOCALL TOOL] Returning response:', JSON.stringify(response, null, 2));
+
+        return res.json(response);
     } catch (err) {
         console.error('[AUTOCALL] Error in /api/autocall/slots:', err);
         return res.status(500).json({ error: 'Eroare la citirea programului din Istoma.' });
