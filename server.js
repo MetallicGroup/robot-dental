@@ -254,9 +254,10 @@ app.get('/api/autocall/book', (req, res) => {
 });
 
 // Custom mid-call tool endpoint: întoarce disponibilitatea pe medici/cabinete pentru o anumită zi
-// GET /api/autocall/slots?date=28.01.2026
+// GET /api/autocall/slots?date=28.01.2026&time=20:00&doctor_id=2
+// Endpoint pentru mid-call tool Autocalls: verifică disponibilitatea medicilor
 app.get('/api/autocall/slots', async (req, res) => {
-    const { date, locationId } = req.query || {};
+    const { date, time, doctor_id, location_id } = req.query || {};
 
     if (!date) {
         return res.status(400).json({ error: 'date (DD.MM.YYYY) este obligatoriu' });
@@ -264,23 +265,72 @@ app.get('/api/autocall/slots', async (req, res) => {
 
     try {
         // Dacă avem locationId, filtrăm doar pe acel sediu, altfel lăsăm 0 (toate sediile)
-        const locationIds = locationId ? [Number(locationId)] : [];
-        const doctorIds = []; // gol = toți medicii
+        const locationIds = location_id ? [Number(location_id)] : [];
+        const doctorIds = doctor_id ? [Number(doctor_id)] : []; // gol = toți medicii
 
         const slots = await IstomaService.getAvailableSlots(date, doctorIds, locationIds);
 
         if (!slots || slots.length === 0) {
             return res.json({
                 date,
+                time: time || null,
+                doctor_id: doctor_id ? Number(doctor_id) : null,
+                available: false,
                 doctors: [],
-                message: `Nu am găsit niciun interval disponibil în Istoma pentru data de ${date}.`
+                message: `Nu am găsit niciun interval disponibil în Istoma pentru data de ${date}${time ? ` la ora ${time}` : ''}${doctor_id ? ` pentru medicul ${getDoctorName(Number(doctor_id))}` : ''}.`
+            });
+        }
+
+        // Dacă avem time specificat, filtrăm doar sloturile care acoperă acea oră
+        let filteredSlots = slots;
+        if (time) {
+            const requestedDateTime = parseRoDateTime(date, time);
+            if (requestedDateTime) {
+                filteredSlots = slots.filter(slot => {
+                    const startStr = slot.DataInceputInterval || slot.dataInceputInterval || slot.StartDate;
+                    const endStr = slot.DataFinalInterval || slot.dataFinalInterval || slot.EndDate;
+                    if (!startStr || !endStr) return false;
+
+                    const start = new Date(startStr);
+                    const end = new Date(endStr);
+                    if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
+
+                    return requestedDateTime >= start && requestedDateTime < end;
+                });
+            }
+        }
+
+        // Dacă avem doctor_id specificat și time, verificăm dacă medicul este disponibil la ora respectivă
+        if (doctor_id && time && filteredSlots.length === 0) {
+            const doctorName = getDoctorName(Number(doctor_id));
+            return res.json({
+                date,
+                time,
+                doctor_id: Number(doctor_id),
+                doctor_name: doctorName,
+                available: false,
+                doctors: [],
+                message: `${doctorName} nu are program disponibil la ora ${time} în ziua ${date}.`
+            });
+        }
+
+        // Dacă avem doctor_id specificat dar nu găsim sloturi pentru el în ziua respectivă
+        if (doctor_id && filteredSlots.length === 0 && !time) {
+            const doctorName = getDoctorName(Number(doctor_id));
+            return res.json({
+                date,
+                doctor_id: Number(doctor_id),
+                doctor_name: doctorName,
+                available: false,
+                doctors: [],
+                message: `${doctorName} nu are program în ziua ${date}.`
             });
         }
 
         // Grupăm sloturile pe doctor și locație
         const doctorMap = {};
 
-        for (const slot of slots) {
+        for (const slot of filteredSlots) {
             const docId = Number(slot.IdMedic || slot.idMedic || slot.IDMedic);
             const locId = Number(slot.IdLocatie || slot.idLocatie || slot.IDLocatie);
             const startStr =
@@ -292,13 +342,13 @@ app.get('/api/autocall/slots', async (req, res) => {
             if (!docId || !startStr) continue;
 
             // Extragem ora HH:MM
-            let time = '';
+            let slotTime = '';
             if (startStr.includes('T')) {
-                time = startStr.split('T')[1].substring(0, 5);
+                slotTime = startStr.split('T')[1].substring(0, 5);
             } else if (startStr.includes(' ')) {
-                time = startStr.split(' ')[1].substring(0, 5);
+                slotTime = startStr.split(' ')[1].substring(0, 5);
             }
-            if (!time) continue;
+            if (!slotTime) continue;
 
             if (!doctorMap[docId]) {
                 doctorMap[docId] = {};
@@ -306,7 +356,7 @@ app.get('/api/autocall/slots', async (req, res) => {
             if (!doctorMap[docId][locId]) {
                 doctorMap[docId][locId] = new Set();
             }
-            doctorMap[docId][locId].add(time);
+            doctorMap[docId][locId].add(slotTime);
         }
 
         const doctors = Object.entries(doctorMap).map(([docIdStr, locs]) => {
@@ -333,8 +383,14 @@ app.get('/api/autocall/slots', async (req, res) => {
             };
         });
 
+        // Dacă avem time și doctor_id specificat și găsim sloturi, medicul este disponibil
+        const isAvailable = time && doctor_id && filteredSlots.length > 0;
+
         return res.json({
             date,
+            time: time || null,
+            doctor_id: doctor_id ? Number(doctor_id) : null,
+            available: isAvailable,
             doctors
         });
     } catch (err) {
@@ -434,43 +490,93 @@ app.post('/api/autocall/book', async (req, res) => {
             email: ''
         };
 
-        // 1) Încearcă să citești programul real din Istoma și să găsești sloturi care acoperă ora cerută
+        // 1) VERIFICARE OBLIGATORIE: Citește programul real din Istoma și verifică disponibilitatea
         const requestedDateTime = parseRoDateTime(date, time);
         let effectiveDoctorId = null;
         let effectiveLocationId = null;
+        let availabilityError = null;
 
-        if (requestedDateTime) {
-            try {
-                // Dacă avem deja un locationId din Autocalls, îl folosim; altfel lăsăm Istoma să aleagă toate sediile (0)
-                const locationIdsToCheck = locationIdRaw ? [Number(locationIdRaw)] : [];
-                const doctorIdsToCheck = doctorIdRaw ? [Number(doctorIdRaw)] : [];
+        if (!requestedDateTime) {
+            return res.status(400).json({ 
+                error: 'Data sau ora invalidă',
+                message: 'Nu am putut interpreta data sau ora programării. Te rugăm să încerci din nou.'
+            });
+        }
 
-                const slots = await IstomaService.getAvailableSlots(
-                    date,
-                    doctorIdsToCheck,
-                    locationIdsToCheck
+        try {
+            // Dacă avem deja un locationId din Autocalls, îl folosim; altfel lăsăm Istoma să aleagă toate sediile (0)
+            const locationIdsToCheck = locationIdRaw ? [Number(locationIdRaw)] : [];
+            const doctorIdsToCheck = doctorIdRaw ? [Number(doctorIdRaw)] : [];
+
+            const slots = await IstomaService.getAvailableSlots(
+                date,
+                doctorIdsToCheck,
+                locationIdsToCheck
+            );
+
+            console.log('[AUTOCALL] Istoma slots fetched for date', date, 'count:', slots.length);
+
+            // Filtrăm sloturile care acoperă exact ora cerută
+            const matchingSlots = [];
+            for (const slot of slots) {
+                const startStr = slot.DataInceputInterval || slot.dataInceputInterval || slot.StartDate;
+                const endStr = slot.DataFinalInterval || slot.dataFinalInterval || slot.EndDate;
+                if (!startStr || !endStr) continue;
+
+                const start = new Date(startStr);
+                const end = new Date(endStr);
+                if (isNaN(start.getTime()) || isNaN(end.getTime())) continue;
+
+                if (requestedDateTime >= start && requestedDateTime < end) {
+                    matchingSlots.push(slot);
+                }
+            }
+
+            console.log('[AUTOCALL] Matching slots for requested time:', matchingSlots.length);
+
+            // Dacă clientul a specificat un medic anume, verificăm dacă este disponibil
+            if (doctorIdRaw) {
+                const requestedDoctorId = Number(doctorIdRaw);
+                const doctorSlots = matchingSlots.filter(
+                    s => Number(s.IdMedic || s.idMedic) === requestedDoctorId
                 );
 
-                console.log('[AUTOCALL] Istoma slots fetched for date', date, 'count:', slots.length);
+                if (doctorSlots.length === 0) {
+                    // Verificăm dacă medicul lucrează în ziua respectivă dar nu la ora respectivă
+                    const allDoctorSlots = slots.filter(
+                        s => Number(s.IdMedic || s.idMedic) === requestedDoctorId
+                    );
 
-                // Filtrăm sloturile care acoperă exact ora cerută
-                const matchingSlots = [];
-                for (const slot of slots) {
-                    const startStr = slot.DataInceputInterval || slot.dataInceputInterval || slot.StartDate;
-                    const endStr = slot.DataFinalInterval || slot.dataFinalInterval || slot.EndDate;
-                    if (!startStr || !endStr) continue;
-
-                    const start = new Date(startStr);
-                    const end = new Date(endStr);
-                    if (isNaN(start.getTime()) || isNaN(end.getTime())) continue;
-
-                    if (requestedDateTime >= start && requestedDateTime < end) {
-                        matchingSlots.push(slot);
+                    const doctorName = getDoctorName(requestedDoctorId);
+                    
+                    if (allDoctorSlots.length === 0) {
+                        availabilityError = `${doctorName} nu are program în ziua ${date}.`;
+                    } else {
+                        availabilityError = `${doctorName} este ocupat la ora ${time} în ziua ${date}.`;
                     }
+
+                    console.log('[AUTOCALL] Requested doctor not available:', availabilityError);
+                    return res.status(400).json({
+                        error: 'Medicul nu este disponibil',
+                        message: availabilityError,
+                        doctor_id: requestedDoctorId,
+                        doctor_name: doctorName,
+                        date,
+                        time
+                    });
                 }
 
-                console.log('[AUTOCALL] Matching slots for requested time:', matchingSlots.length);
+                // Medicul este disponibil, folosim primul slot disponibil pentru el
+                const chosenSlot = doctorSlots[0];
+                effectiveDoctorId = requestedDoctorId;
+                effectiveLocationId = Number(chosenSlot.IdLocatie || chosenSlot.idLocatie) || null;
 
+                console.log('[AUTOCALL] Requested doctor is available:', {
+                    effectiveDoctorId,
+                    effectiveLocationId
+                });
+            } else {
+                // Clientul nu a specificat medic, alegem din medicii disponibili
                 if (matchingSlots.length > 0) {
                     // Round-robin simplu / random printre medicii disponibili în aceste sloturi
                     const doctorSet = new Set(
@@ -497,21 +603,40 @@ app.post('/api/autocall/book', async (req, res) => {
                         });
                     }
                 }
-            } catch (e) {
-                console.error('[AUTOCALL] Error while fetching/matching Istoma slots:', e);
             }
+
+            // Dacă nu am găsit niciun slot disponibil la ora respectivă
+            if (!effectiveDoctorId && matchingSlots.length === 0) {
+                availabilityError = `Nu există programări disponibile la ora ${time} în ziua ${date}.`;
+                console.log('[AUTOCALL] No slots available:', availabilityError);
+                return res.status(400).json({
+                    error: 'Nu există disponibilitate',
+                    message: availabilityError,
+                    date,
+                    time
+                });
+            }
+
+        } catch (e) {
+            console.error('[AUTOCALL] Error while fetching/matching Istoma slots:', e);
+            return res.status(500).json({
+                error: 'Eroare la verificarea disponibilității',
+                message: 'Nu am putut verifica disponibilitatea în sistemul clinicii. Te rugăm să încerci din nou sau să contactezi recepția.'
+            });
         }
 
-        // 2) Dacă nu am găsit sloturi potrivite, folosim fallback: doctor random din pool și locație principală
+        // 2) Dacă nu am găsit sloturi potrivite, NU folosim fallback - returnăm eroare
         if (!effectiveDoctorId) {
-            const doctorPool = [2, 3, 4, 5];
-            effectiveDoctorId = doctorIdRaw
-                ? Number(doctorIdRaw)
-                : doctorPool[Math.floor(Math.random() * doctorPool.length)];
+            return res.status(400).json({
+                error: 'Nu există disponibilitate',
+                message: `Nu am găsit medici disponibili la ora ${time} în ziua ${date}.`,
+                date,
+                time
+            });
         }
 
         if (!effectiveLocationId) {
-            effectiveLocationId = locationIdRaw ? Number(locationIdRaw) : 5;
+            effectiveLocationId = locationIdRaw ? Number(locationIdRaw) : 5; // Fallback doar pentru locație
         }
 
         const cabinetForIstoma = effectiveLocationId;
