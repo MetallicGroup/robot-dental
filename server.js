@@ -551,29 +551,21 @@ app.post('/api/autocall/book', async (req, res) => {
                     
                     let errorMessage = '';
                     if (allDoctorSlots.length === 0) {
-                        errorMessage = `Îmi pare rău, dar ${doctorName} nu are program în ziua ${date}. Te rugăm să alegi altă dată sau alt medic.`;
+                        errorMessage = `${doctorName} nu are program în ziua ${date}.`;
                     } else {
-                        errorMessage = `Îmi pare rău, dar ${doctorName} este ocupat la ora ${time} în ziua ${date}. Te rugăm să alegi altă oră sau alt medic.`;
+                        errorMessage = `${doctorName} este ocupat la ora ${time} în ziua ${date}.`;
                     }
 
                     console.log('[AUTOCALL] Requested doctor not available:', errorMessage);
                     
-                    // Trimitem mesaj WhatsApp către client explicând problema
-                    try {
-                        await WhatsappService.sendMessage(normalizedPhone, errorMessage);
-                        console.log('[AUTOCALL] WhatsApp message sent to client about unavailability');
-                    } catch (waError) {
-                        console.error('[AUTOCALL] Failed to send WhatsApp message:', waError);
-                    }
-                    
+                    // Returnăm eroare către Autocalls - robotul va spune direct clientului în apel
                     return res.status(400).json({
                         error: 'Medicul nu este disponibil',
                         message: errorMessage,
                         doctor_id: requestedDoctorId,
                         doctor_name: doctorName,
                         date,
-                        time,
-                        whatsapp_sent: true
+                        time
                     });
                 }
 
@@ -618,23 +610,15 @@ app.post('/api/autocall/book', async (req, res) => {
 
             // Dacă nu am găsit niciun slot disponibil la ora respectivă
             if (!effectiveDoctorId && matchingSlots.length === 0) {
-                const errorMessage = `Îmi pare rău, dar nu există programări disponibile la ora ${time} în ziua ${date}. Te rugăm să alegi altă oră sau altă dată.`;
+                const errorMessage = `Nu există programări disponibile la ora ${time} în ziua ${date}.`;
                 console.log('[AUTOCALL] No slots available:', errorMessage);
                 
-                // Trimitem mesaj WhatsApp către client explicând problema
-                try {
-                    await WhatsappService.sendMessage(normalizedPhone, errorMessage);
-                    console.log('[AUTOCALL] WhatsApp message sent to client about no availability');
-                } catch (waError) {
-                    console.error('[AUTOCALL] Failed to send WhatsApp message:', waError);
-                }
-                
+                // Returnăm eroare către Autocalls - robotul va spune direct clientului în apel
                 return res.status(400).json({
                     error: 'Nu există disponibilitate',
                     message: errorMessage,
                     date,
-                    time,
-                    whatsapp_sent: true
+                    time
                 });
             }
 
