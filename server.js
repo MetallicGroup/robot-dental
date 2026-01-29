@@ -575,11 +575,11 @@ app.post('/api/autocall/book', async (req, res) => {
         const locInfo = getLocationInfo(effectiveLocationId);
         const fullAddress = locInfo.address ? `${locInfo.name}, ${locInfo.address}` : locInfo.name;
         
-        // Template WhatsApp: confirmare_programare
+        // Template WhatsApp: confirmare_programare1
         // Variabile: {{1}} = Data, {{2}} = Ora, {{3}} = Medic, {{4}} = Locație + Adresă
         const templateSent = await WhatsappService.sendTemplate(
             normalizedPhone,
-            'confirmare_programare', // Numele template-ului din Meta Business Manager
+            'confirmare_programare1', // Numele template-ului din Meta Business Manager
             'ro', // Codul limbii (română)
             [
                 {

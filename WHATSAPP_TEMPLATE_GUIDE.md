@@ -27,7 +27,7 @@ Te așteptăm la cabinet!
 ### Pasul 2: Creează Template Nou
 1. Click pe **"Create Template"**
 2. Selectează categoria: **"MARKETING"** ⚡ (se aprobă instant, fără așteptare!)
-3. Nume template: **`confirmare_programare`** (exact acest nume!)
+3. Nume template: **`confirmare_programare1`** (exact acest nume!)
 4. Limbă: **Română (ro)**
 
 ### Pasul 3: Conținutul Template-ului
@@ -101,7 +101,7 @@ Super Smile
 
 ## Important!
 
-1. **Numele template-ului** trebuie să fie exact: `confirmare_programare` (lowercase, cu underscore)
+1. **Numele template-ului** trebuie să fie exact: `confirmare_programare1` (lowercase, cu underscore și "1" la sfârșit)
 2. **Categoria**: **MARKETING** ⚡ (se aprobă instant, fără așteptare!)
 3. **Limbă**: `ro` (română)
 4. **Variabilele** trebuie să fie în ordine: `{{1}}`, `{{2}}`, `{{3}}`, `{{4}}`
@@ -121,7 +121,7 @@ După ce template-ul este aprobat, poți testa prin:
 ## Note Tehnice
 
 Codul trimite template-ul cu următoarele parametri:
-- **Template name**: `confirmare_programare`
+- **Template name**: `confirmare_programare1`
 - **Language code**: `ro`
 - **Body parameters**:
   - `{{1}}` = Data (format: "DD.MM.YYYY")
