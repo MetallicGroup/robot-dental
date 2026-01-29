@@ -656,11 +656,40 @@ app.post('/api/autocall/book', async (req, res) => {
                     console.log('[AUTOCALL] Requested doctor not available, sending WhatsApp with alternatives');
                     
                     // Trimitem mesaj WhatsApp cu alternative
+                    // Încearcă să folosească template-ul 'alternative_disponibile' dacă există, altfel folosește mesaj text simplu
                     try {
-                        await WhatsappService.sendMessage(normalizedPhone, whatsappMessage);
-                        console.log('[AUTOCALL] WhatsApp message sent with alternatives');
+                        const alternativeList = alternativeDoctors.length > 0 
+                            ? `În schimb, la ora ${time} în ziua ${date} sunt disponibili următorii medici:\n${alternativeDoctors.map((alt, idx) => `${idx + 1}. ${alt.doctorName} - ${alt.locationInfo.name}`).join('\n')}`
+                            : `Nu există medici disponibili la ora ${time} în ziua ${date}.`;
+                        
+                        // Încearcă să folosească template-ul pentru alternative (dacă există)
+                        const templateSent = await WhatsappService.sendTemplate(
+                            normalizedPhone,
+                            'alternative_disponibile', // Template pentru alternative (trebuie creat în Meta Business Manager)
+                            'ro',
+                            [
+                                {
+                                    type: 'body',
+                                    parameters: [
+                                        { type: 'text', text: doctorName },     // {{1}} = Numele medicului solicitat
+                                        { type: 'text', text: time },           // {{2}} = Ora solicitată
+                                        { type: 'text', text: date },           // {{3}} = Data solicitată
+                                        { type: 'text', text: alternativeList } // {{4}} = Lista alternative sau mesaj
+                                    ]
+                                }
+                            ]
+                        );
+                        
+                        if (!templateSent) {
+                            // Fallback: folosim mesaj text simplu (poate eșua dacă au trecut >24h)
+                            await WhatsappService.sendMessage(normalizedPhone, whatsappMessage);
+                            console.log('[AUTOCALL] WhatsApp text message sent with alternatives (template not available)');
+                        } else {
+                            console.log('[AUTOCALL] WhatsApp template sent with alternatives');
+                        }
                     } catch (waError) {
-                        console.error('[AUTOCALL] Failed to send WhatsApp message:', waError);
+                        console.error('[AUTOCALL] Failed to send WhatsApp message (poate fi din cauza erorii "Re-engagement message" sau template inexistent):', waError.message || waError);
+                        // Nu returnăm eroare - booking-ul nu a fost făcut, dar am încercat să informăm clientul
                     }
                     
                     // Returnăm success (am trimis mesaj cu alternative)
@@ -719,13 +748,36 @@ app.post('/api/autocall/book', async (req, res) => {
                 console.log('[AUTOCALL] No slots available, sending WhatsApp message');
                 
                 // Trimitem mesaj WhatsApp cu explicație
-                const whatsappMessage = `Îmi pare rău, dar nu există programări disponibile la ora ${time} în ziua ${date}.\n\nTe rugăm să alegi altă oră sau altă dată. Ne poți contacta pentru a găsi o altă opțiune convenabilă.`;
+                const whatsappMessage = `Îmi pare rău, dar nu există programări disponibile la ora ${time} în ziua ${date}.\n\nTe rugăm să alegi altă oră sau altă dată. Scrie "vreau altă oră" sau "schimbă programarea" pentru a alege o altă opțiune.`;
                 
                 try {
-                    await WhatsappService.sendMessage(normalizedPhone, whatsappMessage);
-                    console.log('[AUTOCALL] WhatsApp message sent about no availability');
+                    // Încearcă să folosească template-ul pentru alternative (dacă există)
+                    const templateSent = await WhatsappService.sendTemplate(
+                        normalizedPhone,
+                        'alternative_disponibile',
+                        'ro',
+                        [
+                            {
+                                type: 'body',
+                                parameters: [
+                                    { type: 'text', text: 'Niciun medic' },     // {{1}} = Numele medicului (nu există)
+                                    { type: 'text', text: time },               // {{2}} = Ora solicitată
+                                    { type: 'text', text: date },               // {{3}} = Data solicitată
+                                    { type: 'text', text: 'Nu există medici disponibili la această oră. Te rugăm să alegi altă oră sau altă dată.' } // {{4}} = Mesaj
+                                ]
+                            }
+                        ]
+                    );
+                    
+                    if (!templateSent) {
+                        // Fallback: folosim mesaj text simplu (poate eșua dacă au trecut >24h)
+                        await WhatsappService.sendMessage(normalizedPhone, whatsappMessage);
+                        console.log('[AUTOCALL] WhatsApp text message sent about no availability (template not available)');
+                    } else {
+                        console.log('[AUTOCALL] WhatsApp template sent about no availability');
+                    }
                 } catch (waError) {
-                    console.error('[AUTOCALL] Failed to send WhatsApp message:', waError);
+                    console.error('[AUTOCALL] Failed to send WhatsApp message (poate fi din cauza erorii "Re-engagement message" sau template inexistent):', waError.message || waError);
                 }
                 
                 // Returnăm success (am trimis mesaj cu explicație)
