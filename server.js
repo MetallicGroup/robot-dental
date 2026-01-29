@@ -9,6 +9,7 @@ const AppointmentStore = require('./services/appointmentStore');
 const WhatsappService = require('./services/whatsappService');
 const AuthService = require('./services/authService');
 const IstomaService = require('./services/istomaService');
+const EmailService = require('./services/emailService');
 
 // Helper maps for doctor names and clinic addresses (adjust strings if needed)
 const DOCTOR_NAMES = {
@@ -574,6 +575,38 @@ app.post('/api/autocall/book', async (req, res) => {
         const addressPart = locInfo.address ? `, la adresa ${locInfo.address}` : '';
         const confirmText = `Programarea ta a fost înregistrată pentru ${date} la ora ${time}, la ${locInfo.name}${addressPart}, la ${doctorName}.`;
         await WhatsappService.sendMessage(normalizedPhone, confirmText);
+
+        // Trimite email cu rezumatul conversației și înregistrarea (dacă există)
+        const emailTo = process.env.EMAIL_TO || process.env.SMTP_USER; // Email destinatar (din .env)
+        if (emailTo) {
+            const transcript = rawBody.formatted_transcript || rawBody.transcript || null;
+            const recordingUrl = rawBody.recording || rawBody.recording_url || null;
+
+            const appointmentData = {
+                date,
+                time,
+                patientName: fullName,
+                patientPhone: normalizedPhone,
+                doctorName,
+                locationName: locInfo.name,
+                locationAddress: locInfo.address
+            };
+
+            // Trimite email asincron (nu blocăm răspunsul webhook-ului)
+            EmailService.sendAutocallSummary(emailTo, appointmentData, transcript, recordingUrl)
+                .then(result => {
+                    if (result.success) {
+                        console.log('[AUTOCALL] Email summary sent successfully to', emailTo);
+                    } else {
+                        console.error('[AUTOCALL] Email summary failed:', result.error);
+                    }
+                })
+                .catch(err => {
+                    console.error('[AUTOCALL] Email summary error:', err.message);
+                });
+        } else {
+            console.warn('[AUTOCALL] EMAIL_TO not configured, skipping email summary');
+        }
 
         return res.json({ ok: true, istomaResponse: responseData });
     } catch (err) {
