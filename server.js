@@ -1,6 +1,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const session = require('express-session');
+const { addDays, format, parse } = require('date-fns');
 require('dotenv').config();
 
 const ConversationManager = require('./services/conversationManager');
@@ -40,6 +41,118 @@ function getDoctorName(id) {
 function getLocationInfo(id) {
     const numericId = Number(id);
     return LOCATION_INFO[numericId] || { name: 'Clinica Supersmile', address: '' };
+}
+
+/**
+ * Caută disponibilități în zilele următoare pentru medicul specificat sau toți medicii
+ * @param {number|null} doctorId - ID-ul medicului (null pentru toți medicii)
+ * @param {number[]} allDoctorIds - Lista tuturor ID-urilor medicilor
+ * @param {number[]} locationIds - Lista ID-urilor locațiilor
+ * @param {string} startDate - Data de început în format DD.MM.YYYY
+ * @param {number} daysToCheck - Numărul de zile de verificat (default: 14)
+ * @returns {Promise<Object>} - Obiect cu disponibilități grupate pe zile: { "DD.MM.YYYY": { doctorId: ["HH:MM", ...] } }
+ */
+async function findAvailabilityInNextDays(doctorId, allDoctorIds, locationIds, startDate, daysToCheck = 14) {
+    const availabilityByDay = {};
+    const doctorsToCheck = doctorId ? [doctorId] : allDoctorIds;
+    
+    // Parsează data de început
+    const [day, month, year] = startDate.split('.');
+    let currentDate = new Date(Number(year), Number(month) - 1, Number(day));
+    
+    // Caută disponibilități pentru fiecare zi
+    for (let i = 1; i <= daysToCheck; i++) {
+        const checkDate = addDays(currentDate, i);
+        const formattedDate = format(checkDate, 'dd.MM.yyyy');
+        
+        try {
+            // Caută sloturi pentru toți medicii în această zi
+            const slots = await IstomaService.getAvailableSlots(
+                formattedDate,
+                doctorsToCheck,
+                locationIds
+            );
+            
+            if (slots && slots.length > 0) {
+                // Grupează sloturile pe medic și ora
+                const slotsByDoctor = {};
+                
+                slots.forEach(slot => {
+                    const slotDoctorId = Number(slot.IdMedic || slot.idMedic);
+                    if (!doctorsToCheck.includes(slotDoctorId)) return;
+                    
+                    const startTime = new Date(slot.DataInceputInterval || slot.dataInceputInterval);
+                    const timeStr = format(startTime, 'HH:mm');
+                    
+                    if (!slotsByDoctor[slotDoctorId]) {
+                        slotsByDoctor[slotDoctorId] = [];
+                    }
+                    
+                    // Adaugă ora doar dacă nu există deja (evită duplicate)
+                    if (!slotsByDoctor[slotDoctorId].includes(timeStr)) {
+                        slotsByDoctor[slotDoctorId].push(timeStr);
+                    }
+                });
+                
+                // Sortează orele pentru fiecare medic
+                Object.keys(slotsByDoctor).forEach(docId => {
+                    slotsByDoctor[docId].sort();
+                });
+                
+                if (Object.keys(slotsByDoctor).length > 0) {
+                    availabilityByDay[formattedDate] = slotsByDoctor;
+                }
+            }
+        } catch (error) {
+            console.error(`[ERROR] Failed to check availability for ${formattedDate}:`, error.message);
+            // Continuă cu următoarea zi chiar dacă aceasta a eșuat
+        }
+    }
+    
+    return availabilityByDay;
+}
+
+/**
+ * Formatează disponibilitățile într-un mesaj WhatsApp ușor de citit
+ * @param {Object} availabilityByDay - Disponibilități grupate pe zile
+ * @param {number|null} requestedDoctorId - ID-ul medicului solicitat (null pentru toți)
+ * @returns {string} - Mesaj formatat
+ */
+function formatAvailabilityMessage(availabilityByDay, requestedDoctorId) {
+    if (Object.keys(availabilityByDay).length === 0) {
+        return 'Nu am găsit disponibilități în următoarele 14 zile. Te rugăm să contactezi recepția pentru mai multe opțiuni.';
+    }
+    
+    let message = '📅 Disponibilități în următoarele zile:\n\n';
+    
+    // Sortează zilele cronologic
+    const sortedDays = Object.keys(availabilityByDay).sort((a, b) => {
+        const [dayA, monthA, yearA] = a.split('.');
+        const [dayB, monthB, yearB] = b.split('.');
+        const dateA = new Date(Number(yearA), Number(monthA) - 1, Number(dayA));
+        const dateB = new Date(Number(yearB), Number(monthB) - 1, Number(dayB));
+        return dateA - dateB;
+    });
+    
+    sortedDays.forEach(date => {
+        const dayAvailability = availabilityByDay[date];
+        message += `📆 ${date}:\n`;
+        
+        Object.keys(dayAvailability).forEach(doctorId => {
+            const doctorName = getDoctorName(Number(doctorId));
+            const times = dayAvailability[doctorId];
+            
+            // Găsește locația pentru acest medic (din primul slot găsit)
+            // Pentru simplitate, nu afișăm locația aici, doar medicul și orele
+            message += `  👨‍⚕️ ${doctorName}: ${times.join(', ')}\n`;
+        });
+        
+        message += '\n';
+    });
+    
+    message += 'Scrie data și ora dorită (ex: "30.01.2026 la ora 15") sau "schimbă programarea" pentru a alege.';
+    
+    return message;
 }
 
 function parseRoDateTime(dateStr, timeStr) {
@@ -649,47 +762,82 @@ app.post('/api/autocall/book', async (req, res) => {
                             whatsappMessage += `${idx + 1}. ${alt.doctorName} - ${alt.locationInfo.name}\n`;
                         });
                         whatsappMessage += `\n\nScrie "vreau altă oră" sau "schimbă programarea" pentru a alege o altă oră sau dată.`;
-                    } else {
-                        whatsappMessage += `\n\nNu există medici disponibili la ora ${time} în ziua ${date}. Te rugăm să alegi altă oră sau altă dată.\n\nScrie "vreau altă oră" sau "schimbă programarea" pentru a alege o altă opțiune.`;
-                    }
-
-                    console.log('[AUTOCALL] Requested doctor not available, sending WhatsApp with alternatives');
-                    
-                    // Trimitem mesaj WhatsApp cu alternative
-                    // Încearcă să folosească template-ul 'alternative_disponibile' dacă există, altfel folosește mesaj text simplu
-                    try {
-                        const alternativeList = alternativeDoctors.length > 0 
-                            ? `În schimb, la ora ${time} în ziua ${date} sunt disponibili următorii medici:\n${alternativeDoctors.map((alt, idx) => `${idx + 1}. ${alt.doctorName} - ${alt.locationInfo.name}`).join('\n')}`
-                            : `Nu există medici disponibili la ora ${time} în ziua ${date}.`;
                         
-                        // Încearcă să folosească template-ul pentru alternative (dacă există)
-                        const templateSent = await WhatsappService.sendTemplate(
-                            normalizedPhone,
-                            'alternative_disponibile', // Template pentru alternative (trebuie creat în Meta Business Manager)
-                            'ro',
-                            [
-                                {
-                                    type: 'body',
-                                    parameters: [
-                                        { type: 'text', text: doctorName },     // {{1}} = Numele medicului solicitat
-                                        { type: 'text', text: time },           // {{2}} = Ora solicitată
-                                        { type: 'text', text: date },           // {{3}} = Data solicitată
-                                        { type: 'text', text: alternativeList } // {{4}} = Lista alternative sau mesaj
-                                    ]
-                                }
-                            ]
-                        );
+                        console.log('[AUTOCALL] Requested doctor not available, sending WhatsApp with alternatives');
                         
-                        if (!templateSent) {
-                            // Fallback: folosim mesaj text simplu (poate eșua dacă au trecut >24h)
-                            await WhatsappService.sendMessage(normalizedPhone, whatsappMessage);
-                            console.log('[AUTOCALL] WhatsApp text message sent with alternatives (template not available)');
-                        } else {
-                            console.log('[AUTOCALL] WhatsApp template sent with alternatives');
+                        // Trimitem mesaj WhatsApp cu alternative
+                        try {
+                            const alternativeList = `În schimb, la ora ${time} în ziua ${date} sunt disponibili următorii medici:\n${alternativeDoctors.map((alt, idx) => `${idx + 1}. ${alt.doctorName} - ${alt.locationInfo.name}`).join('\n')}`;
+                            
+                            // Încearcă să folosească template-ul pentru alternative (dacă există)
+                            const templateSent = await WhatsappService.sendTemplate(
+                                normalizedPhone,
+                                'alternative_disponibile',
+                                'ro',
+                                [
+                                    {
+                                        type: 'body',
+                                        parameters: [
+                                            { type: 'text', text: doctorName },     // {{1}} = Numele medicului solicitat
+                                            { type: 'text', text: time },           // {{2}} = Ora solicitată
+                                            { type: 'text', text: date },           // {{3}} = Data solicitată
+                                            { type: 'text', text: alternativeList } // {{4}} = Lista alternative
+                                        ]
+                                    }
+                                ]
+                            );
+                            
+                            if (!templateSent) {
+                                // Fallback: folosim mesaj text simplu (poate eșua dacă au trecut >24h)
+                                await WhatsappService.sendMessage(normalizedPhone, whatsappMessage);
+                                console.log('[AUTOCALL] WhatsApp text message sent with alternatives (template not available)');
+                            } else {
+                                console.log('[AUTOCALL] WhatsApp template sent with alternatives');
+                            }
+                        } catch (waError) {
+                            console.error('[AUTOCALL] Failed to send WhatsApp message:', waError.message || waError);
                         }
-                    } catch (waError) {
-                        console.error('[AUTOCALL] Failed to send WhatsApp message (poate fi din cauza erorii "Re-engagement message" sau template inexistent):', waError.message || waError);
-                        // Nu returnăm eroare - booking-ul nu a fost făcut, dar am încercat să informăm clientul
+                    } else {
+                        // Nu există alternative disponibile la ora respectivă - caută în zilele următoare
+                        console.log('[AUTOCALL] No alternatives available, searching for availability in next days');
+                        
+                        try {
+                            // Obține toți medicii și locațiile
+                            const [doctors, locations] = await Promise.all([
+                                IstomaService.getDoctors(),
+                                IstomaService.getLocations()
+                            ]);
+                            
+                            let allDoctorIds = doctors.map(d => d.Id || d.id || d.ID).filter(id => id && id !== 0);
+                            let allLocationIds = locations.map(l => l.ID || l.id || l.Id).filter(id => id && id !== 0);
+                            
+                            if (allDoctorIds.length === 0) allDoctorIds = [2, 3, 4, 5];
+                            if (allLocationIds.length === 0) allLocationIds = [3, 5, 11];
+                            
+                            // Caută disponibilități în următoarele 14 zile pentru medicul solicitat (sau toți medicii)
+                            const availabilityByDay = await findAvailabilityInNextDays(
+                                requestedDoctorId,
+                                allDoctorIds,
+                                allLocationIds,
+                                date,
+                                14
+                            );
+                            
+                            // Formatează mesajul cu disponibilități
+                            const availabilityMessage = formatAvailabilityMessage(availabilityByDay, requestedDoctorId);
+                            
+                            // Trimite mesajul cu disponibilități
+                            await WhatsappService.sendMessage(normalizedPhone, availabilityMessage);
+                            console.log('[AUTOCALL] WhatsApp message sent with availability in next days');
+                            
+                        } catch (error) {
+                            console.error('[AUTOCALL] Failed to search availability in next days:', error);
+                            // Fallback: mesaj simplu
+                            await WhatsappService.sendMessage(
+                                normalizedPhone,
+                                `Nu există medici disponibili la ora ${time} în ziua ${date}. Te rugăm să alegi altă oră sau altă dată.\n\nScrie "vreau altă oră" sau "schimbă programarea" pentru a alege o altă opțiune.`
+                            );
+                        }
                     }
                     
                     // Returnăm success (am trimis mesaj cu alternative)
@@ -744,46 +892,48 @@ app.post('/api/autocall/book', async (req, res) => {
 
             // Dacă nu am găsit niciun slot disponibil la ora respectivă
             if (!effectiveDoctorId && matchingSlots.length === 0) {
-                const errorMessage = `Nu există programări disponibile la ora ${time} în ziua ${date}.`;
-                console.log('[AUTOCALL] No slots available, sending WhatsApp message');
-                
-                // Trimitem mesaj WhatsApp cu explicație
-                const whatsappMessage = `Îmi pare rău, dar nu există programări disponibile la ora ${time} în ziua ${date}.\n\nTe rugăm să alegi altă oră sau altă dată. Scrie "vreau altă oră" sau "schimbă programarea" pentru a alege o altă opțiune.`;
+                console.log('[AUTOCALL] No slots available, searching for availability in next days');
                 
                 try {
-                    // Încearcă să folosească template-ul pentru alternative (dacă există)
-                    const templateSent = await WhatsappService.sendTemplate(
-                        normalizedPhone,
-                        'alternative_disponibile',
-                        'ro',
-                        [
-                            {
-                                type: 'body',
-                                parameters: [
-                                    { type: 'text', text: 'Niciun medic' },     // {{1}} = Numele medicului (nu există)
-                                    { type: 'text', text: time },               // {{2}} = Ora solicitată
-                                    { type: 'text', text: date },               // {{3}} = Data solicitată
-                                    { type: 'text', text: 'Nu există medici disponibili la această oră. Te rugăm să alegi altă oră sau altă dată.' } // {{4}} = Mesaj
-                                ]
-                            }
-                        ]
+                    // Obține toți medicii și locațiile
+                    const [doctors, locations] = await Promise.all([
+                        IstomaService.getDoctors(),
+                        IstomaService.getLocations()
+                    ]);
+                    
+                    let allDoctorIds = doctors.map(d => d.Id || d.id || d.ID).filter(id => id && id !== 0);
+                    let allLocationIds = locations.map(l => l.ID || l.id || l.Id).filter(id => id && id !== 0);
+                    
+                    if (allDoctorIds.length === 0) allDoctorIds = [2, 3, 4, 5];
+                    if (allLocationIds.length === 0) allLocationIds = [3, 5, 11];
+                    
+                    // Caută disponibilități în următoarele 14 zile pentru toți medicii
+                    const availabilityByDay = await findAvailabilityInNextDays(
+                        null, // null = toți medicii
+                        allDoctorIds,
+                        allLocationIds,
+                        date,
+                        14
                     );
                     
-                    if (!templateSent) {
-                        // Fallback: folosim mesaj text simplu (poate eșua dacă au trecut >24h)
-                        await WhatsappService.sendMessage(normalizedPhone, whatsappMessage);
-                        console.log('[AUTOCALL] WhatsApp text message sent about no availability (template not available)');
-                    } else {
-                        console.log('[AUTOCALL] WhatsApp template sent about no availability');
-                    }
-                } catch (waError) {
-                    console.error('[AUTOCALL] Failed to send WhatsApp message (poate fi din cauza erorii "Re-engagement message" sau template inexistent):', waError.message || waError);
+                    // Formatează mesajul cu disponibilități
+                    const availabilityMessage = formatAvailabilityMessage(availabilityByDay, null);
+                    
+                    // Trimite mesajul cu disponibilități
+                    await WhatsappService.sendMessage(normalizedPhone, availabilityMessage);
+                    console.log('[AUTOCALL] WhatsApp message sent with availability in next days');
+                    
+                } catch (error) {
+                    console.error('[AUTOCALL] Failed to search availability in next days:', error);
+                    // Fallback: mesaj simplu
+                    const whatsappMessage = `Îmi pare rău, dar nu există programări disponibile la ora ${time} în ziua ${date}.\n\nTe rugăm să alegi altă oră sau altă dată. Scrie "vreau altă oră" sau "schimbă programarea" pentru a alege o altă opțiune.`;
+                    await WhatsappService.sendMessage(normalizedPhone, whatsappMessage);
                 }
                 
-                // Returnăm success (am trimis mesaj cu explicație)
+                // Returnăm success (am trimis mesaj cu disponibilități)
                 return res.status(200).json({
                     ok: true,
-                    message: 'Nu există disponibilitate, dar am trimis mesaj WhatsApp cu explicație',
+                    message: 'Nu există disponibilitate la ora solicitată, dar am trimis mesaj WhatsApp cu disponibilități în zilele următoare',
                     date,
                     time,
                     whatsapp_sent: true

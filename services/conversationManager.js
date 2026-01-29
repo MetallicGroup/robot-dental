@@ -393,27 +393,57 @@ const ConversationManager = {
 
     parseDate(input) {
         const today = new Date();
-        const text = input.toLowerCase().trim();
+        let text = input.toLowerCase().trim();
 
+        // Elimină cuvinte comune care nu afectează data
+        text = text.replace(/\b(la|pe|in|în|ziua|data|de)\b/g, '').trim();
+
+        // Verifică pentru "azi", "mâine", etc.
         if (text === 'azi' || text === 'astazi' || text === 'astăzi') return today;
-        if (text === 'maine' || text === 'mâine') return addDays(today, 1);
-        if (text === 'poimaine' || text === 'poimâine') return addDays(today, 2);
+        if (text === 'maine' || text === 'mâine' || text === 'maine' || text.startsWith('mâine')) return addDays(today, 1);
+        if (text === 'poimaine' || text === 'poimâine' || text.startsWith('poimâine')) return addDays(today, 2);
 
         // Handle days of week (next occurrence)
-        if (DAYS_MAP.hasOwnProperty(text)) {
-            const targetDay = DAYS_MAP[text];
+        const dayMatch = Object.keys(DAYS_MAP).find(day => text.includes(day));
+        if (dayMatch) {
+            const targetDay = DAYS_MAP[dayMatch];
             return nextDay(today, targetDay);
         }
 
-        // Handle DD.MM.YYYY or DD.MM
-        // Try parsing
+        // Handle DD.MM.YYYY or DD.MM sau D.M.YYYY sau D.M
+        // Extrage orice secvență care arată ca dată
+        const datePatterns = [
+            /\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/,  // DD.MM.YYYY
+            /\b(\d{1,2})\.(\d{1,2})\.(\d{2})\b/,   // DD.MM.YY
+            /\b(\d{1,2})\.(\d{1,2})\b/             // DD.MM
+        ];
+
+        for (const pattern of datePatterns) {
+            const match = text.match(pattern);
+            if (match) {
+                const day = parseInt(match[1], 10);
+                const month = parseInt(match[2], 10);
+                const year = match[3] ? parseInt(match[3], 10) : today.getFullYear();
+                
+                // Corectează anul dacă e format scurt
+                const fullYear = year < 100 ? (year < 50 ? 2000 + year : 1900 + year) : year;
+                
+                const d = new Date(fullYear, month - 1, day);
+                if (isValid(d)) {
+                    // Dacă data este în trecut și nu avea an specificat, încercă anul viitor
+                    if (d < today && !match[3]) {
+                        d.setFullYear(d.getFullYear() + 1);
+                    }
+                    return d;
+                }
+            }
+        }
+
+        // Încearcă parsing cu date-fns
         const formats = ['d.M.yyyy', 'dd.MM.yyyy', 'd.M.yy', 'dd.MM.yy', 'd.M', 'dd.MM'];
         for (const fmt of formats) {
             const d = parse(text, fmt, today);
             if (isValid(d)) {
-                // If year missing, assume current or next depending on month?
-                // parse defaults to current year.
-                // If input "01.01", and today is "02.01", it parsed to past. 
                 if (d < today && !text.includes('20')) {
                     d.setFullYear(d.getFullYear() + 1);
                 }
@@ -422,6 +452,60 @@ const ConversationManager = {
         }
 
         return null;
+    },
+
+    /**
+     * Parsează data și ora dintr-un text (ex: "mâine la ora 15", "30.01.2026 la ora 15:00")
+     * @param {string} input - Textul de parsat
+     * @returns {{date: Date, time: string}|null} - Obiect cu data și ora sau null
+     */
+    parseDateAndTime(input) {
+        const text = input.toLowerCase().trim();
+        
+        // Extrage ora (HH:MM sau HH)
+        const timePatterns = [
+            /\b(\d{1,2}):(\d{2})\b/,  // HH:MM
+            /\bora\s+(\d{1,2})\b/,     // "ora 15"
+            /\b(\d{1,2})\s+(ore|ora|h)\b/, // "15 ore"
+            /\b(\d{1,2})\b(?=\s|$)/   // Doar număr (presupunem că e ora dacă e între 8-21)
+        ];
+        
+        let timeStr = null;
+        for (const pattern of timePatterns) {
+            const match = text.match(pattern);
+            if (match) {
+                if (pattern === timePatterns[0]) {
+                    // HH:MM format
+                    timeStr = `${match[1].padStart(2, '0')}:${match[2]}`;
+                } else {
+                    // Doar ora (HH)
+                    const hour = parseInt(match[1] || match[0], 10);
+                    if (hour >= 8 && hour <= 21) {
+                        timeStr = `${hour.toString().padStart(2, '0')}:00`;
+                    }
+                }
+                if (timeStr) break;
+            }
+        }
+        
+        // Elimină partea cu ora din text pentru a parsea data
+        const textWithoutTime = text
+            .replace(/\bora\s+\d{1,2}(:\d{2})?\b/g, '')
+            .replace(/\b\d{1,2}:\d{2}\b/g, '')
+            .replace(/\b\d{1,2}\s+(ore|ora|h)\b/g, '')
+            .trim();
+        
+        // Parsează data
+        const date = this.parseDate(textWithoutTime || text);
+        
+        if (!date) {
+            return null;
+        }
+        
+        return {
+            date,
+            time: timeStr || null
+        };
     },
 
     processSlotsToOptions(slots) {
@@ -535,43 +619,39 @@ const ConversationManager = {
             return;
         }
 
-        // Încearcă să extragă data și ora din mesaj
-        // Format posibil: "mâine la ora 15", "30.01.2026 la ora 10", "ora 20", etc.
+        // Încearcă să extragă data și ora din mesaj folosind funcția îmbunătățită
+        // Format posibil: "mâine la ora 15", "30.01.2026 la ora 10", "ora 20", "mâine 15:00", etc.
+        const parsed = this.parseDateAndTime(text);
+        
         let newDate = null;
         let newTime = null;
-
-        // Parsează data
-        const dateMatch = text.match(/(\d{2}\.\d{2}\.\d{4})|(mâine|poimâine|astăzi|azi)/i);
-        if (dateMatch) {
-            if (dateMatch[1]) {
-                // Format DD.MM.YYYY
-                newDate = dateMatch[1];
-            } else {
-                // "mâine", "astăzi", etc.
-                const today = new Date();
-                if (text.includes('mâine') || text.includes('maine')) {
-                    newDate = format(addDays(today, 1), 'dd.MM.yyyy');
-                } else if (text.includes('poimâine') || text.includes('poimaine')) {
-                    newDate = format(addDays(today, 2), 'dd.MM.yyyy');
-                } else if (text.includes('astăzi') || text.includes('azi')) {
-                    newDate = format(today, 'dd.MM.yyyy');
-                }
-            }
+        
+        if (parsed) {
+            newDate = format(parsed.date, 'dd.MM.yyyy');
+            newTime = parsed.time;
         } else {
-            // Dacă nu specifică data, folosim data vechii programări
-            newDate = oldAppointment.date;
-        }
-
-        // Parsează ora
-        const timeMatch = text.match(/(\d{1,2}):(\d{2})|ora\s+(\d{1,2})|la\s+ora\s+(\d{1,2})/i);
-        if (timeMatch) {
-            if (timeMatch[1] && timeMatch[2]) {
-                // Format HH:MM
-                newTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
+            // Dacă nu reușește să parseze ambele, încearcă doar data
+            const dateOnly = this.parseDate(text);
+            if (dateOnly) {
+                newDate = format(dateOnly, 'dd.MM.yyyy');
             } else {
-                // "ora 15" sau "la ora 15"
-                const hour = timeMatch[3] || timeMatch[4];
-                newTime = `${hour.padStart(2, '0')}:00`;
+                // Dacă nu specifică data, folosim data vechii programări
+                newDate = oldAppointment.date;
+            }
+            
+            // Încearcă să extragă doar ora
+            const timeMatch = text.match(/\b(\d{1,2}):(\d{2})\b/) || text.match(/\bora\s+(\d{1,2})\b/) || text.match(/\b(\d{1,2})\s+(ore|ora|h)\b/);
+            if (timeMatch) {
+                if (timeMatch[1] && timeMatch[2]) {
+                    // HH:MM format
+                    newTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
+                } else {
+                    // Doar ora (HH)
+                    const hour = parseInt(timeMatch[1] || timeMatch[0], 10);
+                    if (hour >= 8 && hour <= 21) {
+                        newTime = `${hour.toString().padStart(2, '0')}:00`;
+                    }
+                }
             }
         }
 
