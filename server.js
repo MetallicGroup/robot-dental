@@ -259,38 +259,7 @@ app.get('/api/autocall/book', (req, res) => {
 app.get('/api/autocall/slots', async (req, res) => {
     const { date, time, doctor_id, location_id } = req.query || {};
 
-    // Validare pentru date - verifică formatul DD.MM.YYYY
-    if (!date || date === 'Example value' || date.trim() === '') {
-        return res.status(400).json({ 
-            error: 'date (DD.MM.YYYY) este obligatoriu',
-            message: 'Parametrul date trebuie să fie în format DD.MM.YYYY (ex: "29.01.2026")',
-            received: date
-        });
-    }
-
-    // Validare format date: trebuie să fie DD.MM.YYYY
-    const datePattern = /^\d{2}\.\d{2}\.\d{4}$/;
-    if (!datePattern.test(date)) {
-        return res.status(400).json({ 
-            error: 'Format date invalid',
-            message: 'Data trebuie să fie în format DD.MM.YYYY (ex: "29.01.2026")',
-            received: date
-        });
-    }
-
-    // Validare pentru time dacă este furnizat
-    if (time && time !== 'Example value' && time.trim() !== '') {
-        const timePattern = /^\d{2}:\d{2}$/;
-        if (!timePattern.test(time)) {
-            return res.status(400).json({ 
-                error: 'Format time invalid',
-                message: 'Ora trebuie să fie în format HH:MM (ex: "20:00")',
-                received: time
-            });
-        }
-    }
-
-    // Pentru testele Autocalls cu "Example value", returnăm un răspuns de test
+    // Pentru testele Autocalls cu "Example value", returnăm un răspuns de test IMEDIAT
     if (date === 'Example value' || (time && time === 'Example value')) {
         return res.json({
             date: 'Example value',
@@ -325,6 +294,37 @@ app.get('/api/autocall/slots', async (req, res) => {
             ],
             message: 'Acesta este un răspuns de test. Pentru verificare reală, folosește date valide în format DD.MM.YYYY și HH:MM.'
         });
+    }
+
+    // Validare pentru date - verifică că există și nu este gol
+    if (!date || date.trim() === '') {
+        return res.status(400).json({ 
+            error: 'date (DD.MM.YYYY) este obligatoriu',
+            message: 'Parametrul date trebuie să fie în format DD.MM.YYYY (ex: "29.01.2026")',
+            received: date
+        });
+    }
+
+    // Validare format date: trebuie să fie DD.MM.YYYY
+    const datePattern = /^\d{2}\.\d{2}\.\d{4}$/;
+    if (!datePattern.test(date)) {
+        return res.status(400).json({ 
+            error: 'Format date invalid',
+            message: 'Data trebuie să fie în format DD.MM.YYYY (ex: "29.01.2026")',
+            received: date
+        });
+    }
+
+    // Validare pentru time dacă este furnizat
+    if (time && time.trim() !== '') {
+        const timePattern = /^\d{2}:\d{2}$/;
+        if (!timePattern.test(time)) {
+            return res.status(400).json({ 
+                error: 'Format time invalid',
+                message: 'Ora trebuie să fie în format HH:MM (ex: "20:00")',
+                received: time
+            });
+        }
     }
 
     try {
