@@ -306,7 +306,9 @@ app.get('/api/autocall/slots', async (req, res) => {
         return res.status(400).json({ 
             error: 'date (DD.MM.YYYY) este obligatoriu',
             message: 'Parametrul date trebuie să fie în format DD.MM.YYYY (ex: "29.01.2026")',
-            received: date
+            received: date,
+            usage: 'Folosește: /api/autocall/slots?date=29.01.2026&time=20:00&doctor_id=4',
+            example: 'https://robot-dental.onrender.com/api/autocall/slots?date=29.01.2026&time=20:00'
         });
     }
 
