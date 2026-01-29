@@ -23,11 +23,11 @@ const DOCTOR_NAMES = {
 const LOCATION_INFO = {
     5: {
         name: 'SUPERSMILE SIBIU',
-        address: 'Strada Sibiului (completează adresa exactă aici)'
+        address: ' Str. Octav Doicescu (completează adresa exactă aici)'
     },
     11: {
         name: 'SUPERSMILE - ARHITECTILOR',
-        address: 'Strada Arhitecților (completează adresa exactă aici)'
+        address: 'Str. Doamna Stanca (completează adresa exactă aici)'
     }
 };
 
@@ -39,6 +39,16 @@ function getDoctorName(id) {
 function getLocationInfo(id) {
     const numericId = Number(id);
     return LOCATION_INFO[numericId] || { name: 'Clinica Supersmile', address: '' };
+}
+
+function parseRoDateTime(dateStr, timeStr) {
+    // dateStr: "DD.MM.YYYY", timeStr: "HH:MM"
+    if (!dateStr || !timeStr) return null;
+    const [day, month, year] = dateStr.split('.');
+    const [hh, mm] = timeStr.split(':');
+    if (!day || !month || !year || !hh || !mm) return null;
+    // Use local time; Istoma times are local
+    return new Date(Number(year), Number(month) - 1, Number(day), Number(hh), Number(mm), 0, 0);
 }
 
 const app = express();
@@ -284,13 +294,13 @@ app.post('/api/autocall/book', async (req, res) => {
             vars?.time ||
             rawBody.booking_time;
 
-        const doctorId =
+        const doctorIdRaw =
             rawBody.doctorId ||
             rawBody.doctor_id ||
             vars?.doctorId ||
             vars?.doctor_id;
 
-        const locationId =
+        const locationIdRaw =
             rawBody.locationId ||
             rawBody.location_id ||
             vars?.locationId ||
@@ -322,16 +332,85 @@ app.post('/api/autocall/book', async (req, res) => {
             email: ''
         };
 
-        // Dacă doctorId nu vine din Autocalls, alegem în mod rotativ/aleator un medic din pool-ul principal,
-        // ca să nu fie mereu același doctor.
-        const doctorPool = [2, 3, 4, 5];
-        let effectiveDoctorId = doctorId;
-        if (!effectiveDoctorId) {
-            effectiveDoctorId = doctorPool[Math.floor(Math.random() * doctorPool.length)];
+        // 1) Încearcă să citești programul real din Istoma și să găsești sloturi care acoperă ora cerută
+        const requestedDateTime = parseRoDateTime(date, time);
+        let effectiveDoctorId = null;
+        let effectiveLocationId = null;
+
+        if (requestedDateTime) {
+            try {
+                // Dacă avem deja un locationId din Autocalls, îl folosim; altfel lăsăm Istoma să aleagă toate sediile (0)
+                const locationIdsToCheck = locationIdRaw ? [Number(locationIdRaw)] : [];
+                const doctorIdsToCheck = doctorIdRaw ? [Number(doctorIdRaw)] : [];
+
+                const slots = await IstomaService.getAvailableSlots(
+                    date,
+                    doctorIdsToCheck,
+                    locationIdsToCheck
+                );
+
+                console.log('[AUTOCALL] Istoma slots fetched for date', date, 'count:', slots.length);
+
+                // Filtrăm sloturile care acoperă exact ora cerută
+                const matchingSlots = [];
+                for (const slot of slots) {
+                    const startStr = slot.DataInceputInterval || slot.dataInceputInterval || slot.StartDate;
+                    const endStr = slot.DataFinalInterval || slot.dataFinalInterval || slot.EndDate;
+                    if (!startStr || !endStr) continue;
+
+                    const start = new Date(startStr);
+                    const end = new Date(endStr);
+                    if (isNaN(start.getTime()) || isNaN(end.getTime())) continue;
+
+                    if (requestedDateTime >= start && requestedDateTime < end) {
+                        matchingSlots.push(slot);
+                    }
+                }
+
+                console.log('[AUTOCALL] Matching slots for requested time:', matchingSlots.length);
+
+                if (matchingSlots.length > 0) {
+                    // Round-robin simplu / random printre medicii disponibili în aceste sloturi
+                    const doctorSet = new Set(
+                        matchingSlots
+                            .map(s => s.IdMedic || s.idMedic)
+                            .filter(Boolean)
+                    );
+                    const availableDoctors = Array.from(doctorSet);
+                    if (availableDoctors.length > 0) {
+                        const chosenDoctor =
+                            availableDoctors[Math.floor(Math.random() * availableDoctors.length)];
+                        const chosenSlot =
+                            matchingSlots.find(
+                                s => (s.IdMedic || s.idMedic) === chosenDoctor
+                            ) || matchingSlots[0];
+
+                        effectiveDoctorId = Number(chosenDoctor);
+                        effectiveLocationId =
+                            Number(chosenSlot.IdLocatie || chosenSlot.idLocatie) || null;
+
+                        console.log('[AUTOCALL] Chosen doctor/location from slots:', {
+                            effectiveDoctorId,
+                            effectiveLocationId
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error('[AUTOCALL] Error while fetching/matching Istoma slots:', e);
+            }
         }
 
-        // Dacă locationId nu vine din Autocalls, folosim locația principală (IdLocatie=5)
-        const effectiveLocationId = locationId || 5; // IdLocatie din intervalele Istoma pentru sediul principal
+        // 2) Dacă nu am găsit sloturi potrivite, folosim fallback: doctor random din pool și locație principală
+        if (!effectiveDoctorId) {
+            const doctorPool = [2, 3, 4, 5];
+            effectiveDoctorId = doctorIdRaw
+                ? Number(doctorIdRaw)
+                : doctorPool[Math.floor(Math.random() * doctorPool.length)];
+        }
+
+        if (!effectiveLocationId) {
+            effectiveLocationId = locationIdRaw ? Number(locationIdRaw) : 5;
+        }
 
         const cabinetForIstoma = effectiveLocationId;
 
