@@ -10,6 +10,37 @@ const WhatsappService = require('./services/whatsappService');
 const AuthService = require('./services/authService');
 const IstomaService = require('./services/istomaService');
 
+// Helper maps for doctor names and clinic addresses (adjust strings if needed)
+const DOCTOR_NAMES = {
+    2: 'Dr. PAVEL Iulia',
+    3: 'Dr. UDECI Madalina',
+    4: 'Dr. COROIAN Andrei',
+    5: 'Dr. CRETIU Raul'
+};
+
+// IdLocatie -> { name, address }
+// TODO: actualizează adresele exacte ale sediilor după nevoie
+const LOCATION_INFO = {
+    5: {
+        name: 'SUPERSMILE SIBIU',
+        address: 'Strada Sibiului (completează adresa exactă aici)'
+    },
+    11: {
+        name: 'SUPERSMILE - ARHITECTILOR',
+        address: 'Strada Arhitecților (completează adresa exactă aici)'
+    }
+};
+
+function getDoctorName(id) {
+    const numericId = Number(id);
+    return DOCTOR_NAMES[numericId] || `Doctor ${numericId || ''}`.trim();
+}
+
+function getLocationInfo(id) {
+    const numericId = Number(id);
+    return LOCATION_INFO[numericId] || { name: 'Clinica Supersmile', address: '' };
+}
+
 const app = express();
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -291,11 +322,18 @@ app.post('/api/autocall/book', async (req, res) => {
             email: ''
         };
 
-        // Dacă doctorId / locationId nu vin din Autocalls, folosim fallback-urile deja folosite în bot
-        const fallbackDoctorId = doctorId || 3; // de ex. Dr. UDECI Madalina ID=3
-        const fallbackLocationId = locationId || 5; // IdLocatie din intervalele Istoma pentru sediul principal
+        // Dacă doctorId nu vine din Autocalls, alegem în mod rotativ/aleator un medic din pool-ul principal,
+        // ca să nu fie mereu același doctor.
+        const doctorPool = [2, 3, 4, 5];
+        let effectiveDoctorId = doctorId;
+        if (!effectiveDoctorId) {
+            effectiveDoctorId = doctorPool[Math.floor(Math.random() * doctorPool.length)];
+        }
 
-        const cabinetForIstoma = fallbackLocationId;
+        // Dacă locationId nu vine din Autocalls, folosim locația principală (IdLocatie=5)
+        const effectiveLocationId = locationId || 5; // IdLocatie din intervalele Istoma pentru sediul principal
+
+        const cabinetForIstoma = effectiveLocationId;
 
         // Apelează direct AdaugaProgramare în Istoma
         const responseData = await IstomaService.addAppointment(
@@ -303,7 +341,7 @@ app.post('/api/autocall/book', async (req, res) => {
             date,
             time,
             30,
-            fallbackDoctorId,
+            effectiveDoctorId,
             cabinetForIstoma
         );
 
@@ -337,8 +375,11 @@ app.post('/api/autocall/book', async (req, res) => {
             return res.status(500).json({ error: 'Istoma booking failed', raw: responseData });
         }
 
-        // Trimite mesaj de confirmare pe WhatsApp către pacient
-        const confirmText = `Programarea ta a fost înregistrată pentru ${date} la ora ${time}. Vei fi așteptat(ă) la clinică.`;
+        // Trimite mesaj de confirmare pe WhatsApp către pacient, cu doctor și adresă
+        const doctorName = getDoctorName(effectiveDoctorId);
+        const locInfo = getLocationInfo(effectiveLocationId);
+        const addressPart = locInfo.address ? `, la adresa ${locInfo.address}` : '';
+        const confirmText = `Programarea ta a fost înregistrată pentru ${date} la ora ${time}, la ${locInfo.name}${addressPart}, la ${doctorName}.`;
         await WhatsappService.sendMessage(normalizedPhone, confirmText);
 
         return res.json({ ok: true, istomaResponse: responseData });
