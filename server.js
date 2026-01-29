@@ -570,11 +570,38 @@ app.post('/api/autocall/book', async (req, res) => {
         });
 
         // Trimite mesaj de confirmare pe WhatsApp către pacient, cu doctor și adresă
+        // Folosim template WhatsApp pentru a evita eroarea "Re-engagement message"
         const doctorName = getDoctorName(effectiveDoctorId);
         const locInfo = getLocationInfo(effectiveLocationId);
-        const addressPart = locInfo.address ? `, la adresa ${locInfo.address}` : '';
-        const confirmText = `Programarea ta a fost înregistrată pentru ${date} la ora ${time}, la ${locInfo.name}${addressPart}, la ${doctorName}.`;
-        await WhatsappService.sendMessage(normalizedPhone, confirmText);
+        const fullAddress = locInfo.address ? `${locInfo.name}, ${locInfo.address}` : locInfo.name;
+        
+        // Template WhatsApp: confirmare_programare
+        // Variabile: {{1}} = Data, {{2}} = Ora, {{3}} = Medic, {{4}} = Locație + Adresă
+        const templateSent = await WhatsappService.sendTemplate(
+            normalizedPhone,
+            'confirmare_programare', // Numele template-ului din Meta Business Manager
+            'ro', // Codul limbii (română)
+            [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: date },           // {{1}} = Data (ex: "29.01.2026")
+                        { type: 'text', text: time },           // {{2}} = Ora (ex: "20:00")
+                        { type: 'text', text: doctorName },     // {{3}} = Medic (ex: "Dr. PAVEL Iulia")
+                        { type: 'text', text: fullAddress }     // {{4}} = Locație + Adresă (ex: "SUPERSMILE SIBIU, Str. Octav Doicescu...")
+                    ]
+                }
+            ]
+        );
+        
+        if (!templateSent) {
+            console.warn('[AUTOCALL] WhatsApp template failed, trying fallback text message');
+            // Fallback: încercăm mesaj text simplu (poate funcționa dacă clientul a răspuns recent)
+            const confirmText = `Programarea ta a fost înregistrată pentru ${date} la ora ${time}, la ${locInfo.name}${locInfo.address ? ', ' + locInfo.address : ''}, la ${doctorName}.`;
+            await WhatsappService.sendMessage(normalizedPhone, confirmText);
+        } else {
+            console.log('[AUTOCALL] WhatsApp template sent successfully');
+        }
 
         // Trimite email cu rezumatul conversației și înregistrarea (dacă există)
         const emailTo = process.env.EMAIL_TO || process.env.SMTP_USER; // Email destinatar (din .env)
